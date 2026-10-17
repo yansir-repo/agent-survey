@@ -6,12 +6,15 @@
  *
  * 不变量一：**客户没答的题一个都不会丢**。客户选“稍后再答”的题进 `deferred`；agent 说完（finish）时，
  * 只要还有，就由系统（不是 agent）开一轮“回头补答”；那一轮之后还没答的就是“待确认”，访谈结束。
- * 不变量二：**阶段节奏由系统数，不由 agent 猜**。每满 STAGE_ROUNDS 个 agent 轮，系统要求一次检查点（agent 重写 CONTEXT.md，
- * 客户逐条确认或纠正）。所以“本阶段第 N / 10 轮”是诚实的倒计时——它不声称总共多少轮。
+ * 不变量二：**阶段节奏由系统数，不由 agent 猜**。一个阶段问满 STAGE_ROUNDS 个 agent 轮之后，系统开始**催**检查点
+ * （agent 重写 CONTEXT.md，客户逐条确认或纠正）——时机由 agent 选：把手头这一块问完、到一个自然的停顿点再做，
+ * 而不是机械地卡在第 10、20 轮（那样最后一个阶段可能只剩一两题就被迫小结）。拖到 STAGE_FORCE 轮系统才强制。
  */
 
-/** 一个阶段有几轮（agent 的提问轮；回头补答和检查点本身不算）。 */
+/** 问满这么多个 agent 轮（回头补答和检查点本身不算）之后，系统开始催检查点。 */
 export const STAGE_ROUNDS = 10;
+/** 催了还拖：到这么多轮，系统强制检查点（不再接受 ask_round）。 */
+export const STAGE_FORCE = 16;
 
 export type Phase = "thinking" | "asking" | "done";
 
@@ -31,9 +34,13 @@ export type Machine = {
   readonly stage: number;
   /** 当前阶段里已经答完的 agent 轮数。 */
   readonly stageRounds: number;
-  /** 这一阶段满了，agent 必须做检查点。 */
+  /** 这一阶段已经问满 STAGE_ROUNDS 轮：系统在催，agent 可以（该）在合适的时机做检查点。 */
   readonly checkpointDue: boolean;
 };
+
+/** 催了还拖到 STAGE_FORCE 轮：不再接受 ask_round，必须先做检查点。 */
+export const checkpointForced = (m: Pick<Machine, "stageRounds">): boolean =>
+  m.stageRounds >= STAGE_FORCE;
 
 export const initial: Machine = {
   phase: "thinking",
@@ -68,6 +75,7 @@ export type Effect =
       readonly t: "prompt";
       readonly why:
         | "answers"
+        | "answers-urge"
         | "checkpoint-due"
         | "checkpoint-answers"
         | "deferred-answers"
@@ -87,8 +95,8 @@ export const step = (
 ): { machine: Machine; effects: ReadonlyArray<Effect> } => {
   switch (e.t) {
     case "agentAsked":
-      // 检查点没做完之前不能再提问（工具那一侧也拒绝了；这里是同一条规则的另一半）
-      return m.phase === "thinking" && !m.checkpointDue
+      // 催了还拖到 STAGE_FORCE 轮，检查点没做之前不能再提问（工具那一侧也拒绝了；这里是同一条规则的另一半）
+      return m.phase === "thinking" && !checkpointForced(m)
         ? {
             machine: { ...m, phase: "asking", open: e.roundId, rounds: m.rounds + 1, nudges: 0 },
             effects: [],
@@ -152,7 +160,16 @@ export const step = (
       const due = stageRounds >= STAGE_ROUNDS;
       return {
         machine: { ...base, deferred, stageRounds, checkpointDue: due },
-        effects: [{ t: "prompt", why: due ? "checkpoint-due" : "answers" }],
+        effects: [
+          {
+            t: "prompt",
+            why: checkpointForced({ stageRounds })
+              ? "checkpoint-due"
+              : due
+                ? "answers-urge"
+                : "answers",
+          },
+        ],
       };
     }
   }

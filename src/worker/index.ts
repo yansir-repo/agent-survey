@@ -19,6 +19,7 @@ import { Cause, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
+import { MODELS, resolveModel } from "../shared/models.ts";
 import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
 import { ingest } from "./upload.ts";
 import {
@@ -166,11 +167,14 @@ const adminRoute = (db: D1Like) =>
           append: str(body["append"]),
         });
         if (!resolved.ok) return json({ ok: false, error: resolved.error }, 422);
+        const model = resolveModel(str(body["model"]));
+        if (!model.ok) return json({ ok: false, error: model.error }, 422);
         const made = yield* create(
           str(body["code"]),
           str(body["brief"]),
           resolved.profile,
           resolved.mission,
+          model.name,
         ).pipe(provide, Effect.result);
         if (made._tag === "Failure") {
           const e = made.failure;
@@ -181,17 +185,30 @@ const adminRoute = (db: D1Like) =>
               : yield* Effect.die(e);
         }
         const i = made.success;
-        yield* rpc(() => stubOf(i.code).begin(i.brief, i.mission));
+        yield* rpc(() => stubOf(i.code).begin(i.brief, i.mission, i.model));
         return json(
           {
             ok: true,
             code: i.code,
             profile: i.profile,
+            model: i.model,
             url: `${origin()}${interviewPath(i.code, i.key)}`,
           },
           201,
         );
       }
+      if (path === "/admin/models" && method === "GET")
+        return json({
+          models: Object.entries(MODELS).map(([name, m]) => ({
+            name,
+            title: m.title,
+            provider: m.provider,
+            available:
+              m.provider === "deepseek"
+                ? env.DEEPSEEK_API_KEY !== "none"
+                : env.AIHUBMIX_API_KEY !== "none",
+          })),
+        });
       if (path === "/admin/profiles" && method === "GET")
         return json({
           default: DEFAULT_PROFILE,

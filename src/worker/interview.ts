@@ -13,6 +13,7 @@ import type { FileInfo, InterviewView, RoundView } from "../shared/api.ts";
 import { markdownPath } from "../shared/files.ts";
 import {
   STAGE_ROUNDS,
+  checkpointForced,
   initial,
   openedDeferred,
   step,
@@ -95,6 +96,12 @@ const kvGet = (k: string) =>
   );
 const kvSet = (k: string, v: string) =>
   q("INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", k, v);
+/** 协议摩擦的计数（模型对比时看：被拒了几次、被提醒了几次、出错几次）。不影响流程。 */
+const bump = (name: string) =>
+  q(
+    "INSERT INTO kv (k, v) VALUES (?, '1') ON CONFLICT(k) DO UPDATE SET v = CAST(CAST(v AS INTEGER) + 1 AS TEXT)",
+    `stat.${name}`,
+  );
 const kvDel = (k: string) => q("DELETE FROM kv WHERE k = ?", k);
 
 const loadMachine = Effect.map(kvGet("machine"), (raw) =>
@@ -154,12 +161,14 @@ const perform = (fx: MachineEffect, m: Machine, answers?: Submission) =>
     const host = yield* Host;
     switch (fx.t) {
       case "prompt": {
+        if (fx.why === "nudge") yield* bump("nudges");
         const body =
           fx.why === "nudge"
             ? promptText("nudge", { checkpointDue: m.checkpointDue })
             : promptText(fx.why, {
                 // 检查点要告诉 agent 的是“刚完成的那个阶段”：due 时机器还没往前走（stage+1），answers 时机器已经走过了（stage）
-                stage: fx.why === "checkpoint-due" ? m.stage + 1 : m.stage,
+                stage: fx.why === "checkpoint-answers" ? m.stage : m.stage + 1,
+                stageRounds: m.stageRounds,
                 seq: answers?.seq ?? 0,
                 answers: answersMarkdown(
                   answers?.items ?? [],
@@ -209,15 +218,17 @@ const apply = (e: Event, answers?: Submission) =>
 
 export const askRound = (raw: unknown) =>
   Effect.gen(function* () {
-    if ((yield* loadMachine).checkpointDue)
+    if (checkpointForced(yield* loadMachine))
       return {
         ok: false,
-        message: `现在是检查点：先更新 ${CONTEXT_PATH}，再调用 checkpoint，不能 ask_round。`,
+        message: `现在必须做检查点：先更新 ${CONTEXT_PATH}，再调用 checkpoint，不能 ask_round。`,
       };
     const used = new Set((yield* allQuestions).map((x) => x.id));
     const parsed = parseAskRound(raw, used);
-    if (!parsed.ok)
+    if (!parsed.ok) {
+      yield* bump("askRefused");
       return { ok: false, message: `这一轮没有发出：${parsed.error}。改正后重新调用 ask_round。` };
+    }
     const seq = (yield* roundRows).length + 1;
     const id = `r${seq}`;
     yield* q(
@@ -248,8 +259,7 @@ export const checkpoint = (raw: unknown) =>
     if (!m.checkpointDue)
       return {
         ok: false,
-        message:
-          "现在还不是检查点（每满一个阶段系统会通知你）。继续 ask_round，或者 finish_interview。",
+        message: `这个阶段还没问满 ${STAGE_ROUNDS} 轮，还不能做检查点。继续 ask_round，或者 finish_interview。`,
       };
     const ctx = yield* Effect.promise(() => host.readFile(CONTEXT_PATH));
     if (!ctx || ctx.trim() === "")
@@ -261,8 +271,10 @@ export const checkpoint = (raw: unknown) =>
         message: `${CONTEXT_PATH} 和上一个检查点相比没有变化：先把它重写整理一遍（合并、去重、改正），再调用 checkpoint。`,
       };
     const parsed = parseCheckpoint(raw, m.stage);
-    if (!parsed.ok)
+    if (!parsed.ok) {
+      yield* bump("checkpointRefused");
       return { ok: false, message: `检查点没有发出：${parsed.error}。改正后重新调用 checkpoint。` };
+    }
     const seq = (yield* roundRows).length + 1;
     const id = `c${seq}`;
     yield* q(
@@ -286,11 +298,13 @@ export const finishInterview = (summary: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
     const ctx = yield* Effect.promise(() => host.readFile(CONTEXT_PATH));
-    if (!ctx || ctx.trim() === "")
+    if (!ctx || ctx.trim() === "") {
+      yield* bump("finishRefused");
       return {
         ok: false,
         message: `还不能结束：先用写文件工具把 ${CONTEXT_PATH} 写好（已知 / 不知道 / 假设），再调用 finish_interview。`,
       };
+    }
     yield* kvSet("summary", summary);
     yield* kvSet("turn.finished", "1");
     return { ok: true, message: "访谈结束。" };
@@ -360,7 +374,9 @@ export const onTurnEnded = (completed: boolean) =>
     yield* kvDel("turn.asked");
     yield* kvDel("turn.finished");
     yield* kvDel("turn.checkpoint");
+    yield* bump("turns");
     if (!completed && asked === null && finished === null) {
+      yield* bump("turnErrors");
       yield* kvSet("error", "访谈者这边出了点问题，请稍后重试");
       return;
     }
@@ -378,13 +394,14 @@ export const onTurnEnded = (completed: boolean) =>
 
 // ---- Worker 调用的程序 ----
 
-export const begin = (brief: string, mission: string) =>
+export const begin = (brief: string, mission: string, model: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
     if ((yield* kvGet("begun")) !== null) return;
     yield* kvSet("begun", "1");
     yield* kvSet("brief", brief);
     yield* kvSet("mission", mission);
+    yield* kvSet("model", model);
     yield* saveMachine(initial);
     yield* Effect.promise(() => host.send(promptText("begin", { brief }), "begin"));
   });
@@ -614,6 +631,13 @@ export const snapshot = Effect.gen(function* () {
   return JSON.stringify({
     brief: yield* kvGet("brief"),
     mission: yield* kvGet("mission"),
+    model: yield* kvGet("model"),
+    stats: Object.fromEntries(
+      (yield* q("SELECT k, v FROM kv WHERE k LIKE 'stat.%'")).map((r) => [
+        text(r, "k").slice(5),
+        Number(text(r, "v")),
+      ]),
+    ),
     machine: yield* loadMachine,
     summary: yield* kvGet("summary"),
     context: yield* Effect.promise(() => host.readFile(CONTEXT_PATH)),

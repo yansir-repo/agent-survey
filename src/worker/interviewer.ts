@@ -17,6 +17,7 @@ import {
 import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } from "ai";
 import { Effect, Layer, Schema } from "effect";
 import type { InterviewView } from "../shared/api.ts";
+import { DEFAULT_MODEL, MODELS } from "../shared/models.ts";
 import { CONTEXT_PATH, systemPrompt } from "../shared/prompt.ts";
 import { AskRound, CheckpointInput } from "../shared/questions.ts";
 import {
@@ -127,15 +128,36 @@ export class Interviewer extends Think<Cloudflare.Env> {
 
   // ---- Think ----
 
+  /** 这个访谈用的模型：创建时存的名字（老访谈没有就用默认）。同步读（Think 的 getModel 是同步的）。 */
+  private modelName(): string {
+    this.ctx.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)",
+    );
+    const row = this.ctx.storage.sql.exec("SELECT v FROM kv WHERE k = 'model'").toArray()[0];
+    const v = typeof row?.["v"] === "string" ? row["v"] : "";
+    return v !== "" && MODELS[v] ? v : this.env.DEEPSEEK_MODEL || DEFAULT_MODEL;
+  }
+
   private model(): LanguageModel {
+    const spec = MODELS[this.modelName()] ?? MODELS[DEFAULT_MODEL]!;
+    if (spec.provider === "deepseek") {
+      const provider = createOpenAICompatible({
+        name: "deepseek",
+        baseURL: "https://api.deepseek.com",
+        apiKey: this.env.DEEPSEEK_API_KEY ?? "",
+        includeUsage: true,
+        transformRequestBody: (body) => ({ ...body, thinking: { type: "disabled" } }),
+      });
+      return provider.chatModel(spec.id);
+    }
+    // 其他模型：AIHubMix（OpenAI 兼容）。不带 DeepSeek 专用的 thinking 参数。
     const provider = createOpenAICompatible({
-      name: "deepseek",
-      baseURL: "https://api.deepseek.com",
-      apiKey: this.env.DEEPSEEK_API_KEY ?? "",
+      name: "aihubmix",
+      baseURL: "https://aihubmix.com/v1",
+      apiKey: this.env.AIHUBMIX_API_KEY ?? "",
       includeUsage: true,
-      transformRequestBody: (body) => ({ ...body, thinking: { type: "disabled" } }),
     });
-    return provider.chatModel(this.env.DEEPSEEK_MODEL || "deepseek-flash");
+    return provider.chatModel(spec.id);
   }
   override getModel(): LanguageModel {
     return this.model();
@@ -193,8 +215,8 @@ export class Interviewer extends Think<Cloudflare.Env> {
 
   // ---- Worker 调用的方法（RPC）----
 
-  begin(brief: string, mission: string): Promise<void> {
-    return this.run(begin(brief, mission));
+  begin(brief: string, mission: string, model: string): Promise<void> {
+    return this.run(begin(brief, mission, model));
   }
   view(): Promise<InterviewView> {
     return this.run(view);

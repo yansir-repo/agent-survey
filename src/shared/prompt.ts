@@ -5,7 +5,7 @@
  *   任务层（mission，profiles/*.md 或发链接时给的文本）：这次访谈做什么——目的、范围、怎么问、什么算完成。
  * 这个文件里的所有文字集中在一处：改“agent 该怎么做”只改这里或 profiles/。
  */
-import { STAGE_ROUNDS } from "./machine.ts";
+import { STAGE_FORCE, STAGE_ROUNDS } from "./machine.ts";
 
 export const CONTEXT_PATH = "/CONTEXT.md";
 
@@ -35,7 +35,9 @@ const PROTOCOL = `你是一位访谈者，替“我方”向一位客户把一�
 
 ## 阶段检查点
 
-每做满 ${STAGE_ROUNDS} 轮，系统会通知你做一次**检查点**：这时你不能再 ask_round，要先把 ${CONTEXT_PATH} 重写整理一遍（合并、去重、改正，不是追加），再调用 checkpoint，把这一阶段你听到的要点交给客户逐条确认或纠正。
+一个阶段问满 ${STAGE_ROUNDS} 轮之后，系统会开始**催**你做检查点：先把 ${CONTEXT_PATH} 重写整理一遍（合并、去重、改正，不是追加），再调用 checkpoint，把这一阶段你听到的要点交给客户逐条确认或纠正。
+- **时机你选**：把手头正在问的这一块问完，到一个自然的停顿点再做——不用一被催就做，也不必为了凑轮数多问。拖到第 ${STAGE_FORCE} 轮，系统会强制（那时不能再 ask_round）。
+- 阶段没满 ${STAGE_ROUNDS} 轮之前不能做检查点。
 - 要点写成客户能一眼判断对不对的短句，6–12 条，优先写“影响大、你又没把握”的，不要写显而易见的。
 - 客户对每条回答：对 / 不确定 / 不对（他会自己写应该是什么）。他纠正的，以他写的为准，更新 ${CONTEXT_PATH}。
 - 检查点之后继续问，或者（任务的完成判据满足时）结束。
@@ -60,6 +62,7 @@ export const systemPrompt = (mission: string, brief: string): string =>
 export type PromptWhy =
   | "begin"
   | "answers"
+  | "answers-urge"
   | "checkpoint-due"
   | "checkpoint-answers"
   | "deferred-answers"
@@ -74,6 +77,7 @@ export const promptText = (
     answers?: string;
     deferredCount?: number;
     stage?: number;
+    stageRounds?: number;
     checkpointDue?: boolean;
   } = {},
 ): string => {
@@ -86,15 +90,21 @@ export const promptText = (
           ? `（目前还有 ${parts.deferredCount} 个问题客户选了稍后再答，系统会在最后补问。）\n\n`
           : ""
       }先更新 ${CONTEXT_PATH}，再决定：继续提问（ask_round）还是结束（finish_interview）。`;
+    case "answers-urge":
+      return `客户提交了第 ${parts.seq} 轮的回答：\n\n${parts.answers}\n\n${
+        parts.deferredCount
+          ? `（目前还有 ${parts.deferredCount} 个问题客户选了稍后再答，系统会在最后补问。）\n\n`
+          : ""
+      }（提醒：第 ${parts.stage} 阶段已经问了 ${parts.stageRounds} 轮，该找个合适的时机做检查点了。把手头这一块问完、到一个自然的停顿点，就先重写 ${CONTEXT_PATH}，再调用 checkpoint；不用这一轮就做，但别拖过第 ${STAGE_FORCE} 轮。）\n\n先更新 ${CONTEXT_PATH}，再决定：继续提问（ask_round）、做检查点（checkpoint）或结束（finish_interview）。`;
     case "checkpoint-due":
-      return `客户提交了第 ${parts.seq} 轮的回答：\n\n${parts.answers}\n\n**这一轮做满了第 ${parts.stage} 阶段（${STAGE_ROUNDS} 轮），现在是检查点。** 你这一回合不能 ask_round：先把 ${CONTEXT_PATH} 重写整理一遍（合并、去重、改正），再调用 checkpoint，把这一阶段你听到的要点（6–12 条）交给客户逐条确认。`;
+      return `客户提交了第 ${parts.seq} 轮的回答：\n\n${parts.answers}\n\n**第 ${parts.stage} 阶段已经问了 ${parts.stageRounds} 轮，现在必须做检查点。** 你这一回合不能 ask_round：先把 ${CONTEXT_PATH} 重写整理一遍（合并、去重、改正），再调用 checkpoint，把这一阶段你听到的要点（6–12 条）交给客户逐条确认。`;
     case "checkpoint-answers":
       return `客户做完了第 ${parts.stage} 阶段的检查点。对每一条他回答的是：“对”（确认）、“不确定”（还没定）、或“其他（客户自己写的）”——那是他的纠正，**以他写的为准**；没回答的，按“没有确认”处理。\n\n${parts.answers}\n\n更新 ${CONTEXT_PATH}（纠正的改过来，不确定的标成假设），然后继续提问（ask_round），或者在任务的完成判据都成立时结束（finish_interview）。`;
     case "deferred-answers":
       return `客户做完了“回头补答”这一轮：\n\n${parts.answers}\n\n这是最后一轮：更新 ${CONTEXT_PATH}，仍没答的写进“不知道”并标注“客户未答”，然后调用 finish_interview。不要再提问。`;
     case "nudge":
       return parts.checkpointDue
-        ? `现在是检查点：你必须先更新 ${CONTEXT_PATH}，再调用 checkpoint。不能 ask_round。`
+        ? `现在必须做检查点：先更新 ${CONTEXT_PATH}，再调用 checkpoint。不能 ask_round。`
         : `你上一回合既没有调用 ask_round，也没有调用 finish_interview。每个回合必须二选一：继续问（ask_round）或结束（finish_interview）。`;
     case "retry":
       return `上一次回合出错中断了，请接着做：继续提问（ask_round）、做检查点（checkpoint，如果现在是检查点）或结束（finish_interview）。`;

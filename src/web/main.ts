@@ -234,9 +234,12 @@ const stageHtml = (v: InterviewView): string => {
   if (!s) return "";
   if (s.checkpoint)
     return `<div class="stage done">✓ 第 ${s.number} 阶段完成——${s.of} 轮问完了。看一眼我听到的，对不对？</div>`;
+  // 满 of 轮之后，小结的时机由 agent 选（把手头这一块问完），所以后面不再画“还剩几轮”，只说第几轮、快有小结了
+  if (s.round > s.of)
+    return `<div class="stage">第 ${s.number} 阶段 · 第 ${s.round} 轮 · 把手头这一块问完，我就给你一份小结</div>`;
   const dots = Array.from({ length: s.of }, (_, i) => (i < s.round ? "●" : "○")).join("");
   const left = s.of - s.round;
-  return `<div class="stage">第 ${s.number} 阶段 <span class="dots">${dots}</span> ${left === 0 ? "这是本阶段最后一轮，答完我给你一份小结" : `还剩 ${left} 轮，之后我给你一份小结`}</div>`;
+  return `<div class="stage">第 ${s.number} 阶段 <span class="dots">${dots}</span> ${left === 0 ? "满十轮了，问完手头这一块我就给你一份小结" : `再问大约 ${left} 轮，我给你一份小结`}</div>`;
 };
 
 /** 访谈记录：一两百轮时只列最近几轮，更早的折成一行（按阶段数）。 */

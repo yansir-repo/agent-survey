@@ -50,6 +50,7 @@ export type Interview = {
   readonly brief: string;
   readonly profile: string;
   readonly mission: string;
+  readonly model: string;
   readonly createdAt: number;
 };
 const rowOf = (r: Readonly<Record<string, unknown>>): Interview => ({
@@ -58,10 +59,17 @@ const rowOf = (r: Readonly<Record<string, unknown>>): Interview => ({
   brief: str(r, "brief"),
   profile: str(r, "profile"),
   mission: str(r, "mission"),
+  model: str(r, "model"),
   createdAt: num(r, "created_at"),
 });
 
-export const create = (rawCode: string, brief: string, profile: string, mission: string) =>
+export const create = (
+  rawCode: string,
+  brief: string,
+  profile: string,
+  mission: string,
+  model: string,
+) =>
   Effect.gen(function* () {
     const code = normalizeCode(rawCode);
     if (!CODE_RE.test(code))
@@ -75,10 +83,18 @@ export const create = (rawCode: string, brief: string, profile: string, mission:
       return yield* new InterviewExists({ code });
     const key = yield* randomKey;
     yield* db.run(
-      "INSERT INTO interviews (code, key, brief, profile, mission, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [code, key, brief, profile, mission, yield* nowSeconds],
+      "INSERT INTO interviews (code, key, brief, profile, mission, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [code, key, brief, profile, mission, model, yield* nowSeconds],
     );
-    return { code, key, brief, profile, mission, createdAt: yield* nowSeconds } satisfies Interview;
+    return {
+      code,
+      key,
+      brief,
+      profile,
+      mission,
+      model,
+      createdAt: yield* nowSeconds,
+    } satisfies Interview;
   });
 
 export const find = (code: string) =>

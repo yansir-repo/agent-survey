@@ -14,12 +14,12 @@ const arg = (n) => {
 const key =
   process.env.DEEPSEEK_API_KEY ??
   /^DEEPSEEK_API_KEY=(.+)$/m.exec(readFileSync(".dev.vars", "utf8"))?.[1];
-const runs = [
-  { name: "A（旧提示词）", file: arg("a") },
-  { name: "B（新预设）", file: arg("b") },
-  { name: "C（新预设，被要求问满 13 轮以上）", file: arg("c") },
-]
-  .filter((r) => r.file)
+const named = process.argv.flatMap((a, i, all) => (a === "--run" ? [all[i + 1]] : []));
+const runs = named
+  .map((spec) => {
+    const [name, file] = [spec.slice(0, spec.indexOf("=")), spec.slice(spec.indexOf("=") + 1)];
+    return { name, file };
+  })
   .map((r) => ({ ...r, data: JSON.parse(readFileSync(r.file, "utf8")) }));
 
 const llm = async (system, user) => {
@@ -101,13 +101,26 @@ for (const run of runs) {
 }
 
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : "-");
-lines.push("# 对比：同一位客户（保温杯工厂老板），旧提示词 vs 新预设\n");
+lines.push("# 对比：同一位客户（保温杯工厂老板），同一份提示词\n");
 lines.push(
   "| | " + res.map((r) => r.run.name).join(" | ") + " |",
   "|---|" + res.map(() => "---").join("|") + "|",
 );
 const row = (label, f) => lines.push(`| ${label} | ${res.map(f).join(" | ")} |`);
+row("模型", (r) => r.run.data.model || "-");
 row("agent 轮数", (r) => String(r.agentRounds.length));
+row("平均每轮耗时（秒，含模拟客户）", (r) => {
+  const t = (new Date(r.run.data.finishedAt) - new Date(r.run.data.startedAt)) / 1000;
+  return r.agentRounds.length ? (t / r.agentRounds.length).toFixed(0) : "-";
+});
+row("协议摩擦：提问被拒 / 被提醒 / 回合出错", (r) => {
+  const st = r.run.data.stats ?? {};
+  return `${st.askRefused ?? 0} / ${st.nudges ?? 0} / ${st.turnErrors ?? 0}`;
+});
+row(
+  "检查点被拒 / 结束被拒",
+  (r) => `${r.run.data.stats?.checkpointRefused ?? 0} / ${r.run.data.stats?.finishRefused ?? 0}`,
+);
 row("是否收尾", (r) =>
   r.run.data.done
     ? "自己收尾"

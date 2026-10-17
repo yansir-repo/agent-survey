@@ -32,6 +32,8 @@ export default defineConfig((ctx) => ({
       // Workers AI 的 toMarkdown：PDF / Office / 图片 / HTML 转 Markdown。开发模式下没有（Workers AI 只能远程）。
       ...(ctx.mode === "development" ? {} : { AI: bindings.ai() }),
       DEEPSEEK_API_KEY: bindings.secret(),
+      // 其他模型（Claude / GPT）走 AIHubMix（OpenAI 兼容的聚合接口）。线上不配真密钥时填 none，只有 DeepSeek 可用。
+      AIHUBMIX_API_KEY: bindings.secret(),
       DEEPSEEK_MODEL: bindings.text("deepseek-flash"),
       // 运营接口（创建访谈、看进度）的凭证：Authorization: Bearer <ADMIN_TOKEN>。见 AGENTS.md。
       ADMIN_TOKEN: bindings.secret(),

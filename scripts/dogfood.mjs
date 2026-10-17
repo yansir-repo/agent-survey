@@ -36,6 +36,7 @@ const brief = arg("brief", "客户：东莞锐杯实业（保温杯工厂）的�
 const body = {
   code,
   brief,
+  ...(arg("model") ? { model: arg("model") } : {}),
   ...(arg("profile") ? { profile: arg("profile") } : {}),
   ...(arg("append") ? { append: arg("append") } : {}),
   ...(arg("mission-file") ? { mission: readFileSync(arg("mission-file"), "utf8") } : {}),
@@ -216,6 +217,8 @@ for (;;) {
 const snap = await (await admin("GET", `/admin/interviews/${code}`)).json();
 log.context = snap.context ?? "";
 log.summary = snap.summary ?? "";
+log.model = snap.model ?? "";
+log.stats = snap.stats ?? {};
 log.finishedAt = new Date().toISOString();
 save();
 console.log(`[${code}] ${log.done ? "DONE" : "CAPPED"} after ${agentRounds} agent rounds → ${out}`);

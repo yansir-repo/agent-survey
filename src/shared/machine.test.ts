@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_NUDGES,
+  STAGE_FORCE,
   STAGE_ROUNDS,
+  checkpointForced,
   initial,
   openedDeferred,
   step,
@@ -113,7 +115,7 @@ describe("interview state machine", () => {
   });
 });
 
-describe("stages: every STAGE_ROUNDS rounds the system requires a checkpoint", () => {
+describe("stages: after STAGE_ROUNDS rounds the system urges a checkpoint; the agent picks the moment; STAGE_FORCE forces it", () => {
   const round = (n: number): Event[] => [asked(`r${n}`), submitted(`r${n}`, ["a"], [])];
   const rounds = (count: number): Event[] =>
     Array.from({ length: count }, (_, i) => round(i + 1)).flat();
@@ -124,32 +126,37 @@ describe("stages: every STAGE_ROUNDS rounds the system requires a checkpoint", (
     expect(m.checkpointDue).toBe(false);
   });
 
-  it("the round that fills the stage asks the agent for a checkpoint instead of the next question", () => {
+  it("filling the stage only urges: the agent is told it is time, and may still ask (it finishes its current line of questions first)", () => {
     const { m, effects } = run(rounds(STAGE_ROUNDS));
     expect(m.checkpointDue).toBe(true);
-    expect(effects.at(-1)).toEqual({ t: "prompt", why: "checkpoint-due" });
+    expect(effects.at(-1)).toEqual({ t: "prompt", why: "answers-urge" });
+    expect(step(m, asked("rX")).machine.phase).toBe("asking");
   });
 
-  it("while a checkpoint is due the agent cannot ask a normal round (the machine ignores it)", () => {
-    const due = run(rounds(STAGE_ROUNDS)).m;
-    expect(step(due, asked("rX")).machine).toBe(due);
+  it("before the stage is full a checkpoint is not allowed", () => {
+    const m = run(rounds(STAGE_ROUNDS - 1)).m;
+    expect(step(m, { t: "agentCheckpointed", roundId: "c1" }).machine).toBe(m);
+  });
+
+  it("if the agent keeps putting it off, at STAGE_FORCE the system insists and ignores further questions", () => {
+    const urged = run(rounds(STAGE_FORCE - 1)).m;
+    expect(urged.checkpointDue).toBe(true);
+    const { m, effects } = run([asked("rF"), submitted("rF", ["a"], [])], urged);
+    expect(effects.at(-1)).toEqual({ t: "prompt", why: "checkpoint-due" });
+    expect(checkpointForced(m)).toBe(true);
+    expect(step(m, asked("rX")).machine).toBe(m);
   });
 
   it("a checkpoint opens a round for the customer; answering it starts the next stage from zero", () => {
-    const due = run(rounds(STAGE_ROUNDS)).m;
+    const urged = run(rounds(STAGE_ROUNDS + 2)).m;
     const { m, effects } = run(
       [{ t: "agentCheckpointed", roundId: "c1" }, submitted("c1", ["x", "y"], [], "checkpoint")],
-      due,
+      urged,
     );
     expect(m.stage).toBe(1);
     expect(m.stageRounds).toBe(0);
     expect(m.checkpointDue).toBe(false);
     expect(effects).toContainEqual({ t: "prompt", why: "checkpoint-answers" });
-  });
-
-  it("a checkpoint is only possible when one is due", () => {
-    const base = run([]).m;
-    expect(step(base, { t: "agentCheckpointed", roundId: "c1" }).machine).toBe(base);
   });
 
   it("the checkpoint round itself and the catch-up round do not count toward a stage", () => {
@@ -165,20 +172,18 @@ describe("stages: every STAGE_ROUNDS rounds the system requires a checkpoint", (
 
   it("skipped questions keep accumulating across stages and checkpoints (nothing is lost)", () => {
     const events = [...rounds(STAGE_ROUNDS - 1), asked("rN"), submitted("rN", ["a"], ["late"])];
-    const due = run(events).m;
-    expect(due.checkpointDue).toBe(true);
-    expect(due.deferred).toEqual(["late"]);
+    const urged = run(events).m;
+    expect(urged.deferred).toEqual(["late"]);
     const { m } = run(
       [{ t: "agentCheckpointed", roundId: "c1" }, submitted("c1", [], [], "checkpoint")],
-      due,
+      urged,
     );
     expect(m.deferred).toEqual(["late"]);
   });
 
-  it("a silent agent during a due checkpoint is nudged (same budget), and finishing during one is allowed", () => {
-    const due = run(rounds(STAGE_ROUNDS)).m;
-    expect(step(due, { t: "agentSilent" }).effects).toEqual([{ t: "prompt", why: "nudge" }]);
-    const { m } = run([{ t: "agentFinished" }], due);
+  it("finishing is always allowed, with or without a pending checkpoint (no pointless final summary for a one-question tail)", () => {
+    const urged = run(rounds(STAGE_ROUNDS + 1)).m;
+    const { m } = run([{ t: "agentFinished" }], urged);
     expect(m.phase).toBe("done");
     expect(m.checkpointDue).toBe(false);
   });

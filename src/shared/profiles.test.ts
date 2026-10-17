@@ -58,8 +58,9 @@ describe("the two layers of the instructions", () => {
     expect(text).not.toContain("第一轮就问");
   });
 
-  it("tells the agent about the checkpoint rhythm the system enforces", () => {
-    expect(text).toContain(`每做满 ${STAGE_ROUNDS} 轮`);
+  it("tells the agent the checkpoint is urged after a full stage and the moment is its own choice", () => {
+    expect(text).toContain(`问满 ${STAGE_ROUNDS} 轮之后`);
+    expect(text).toContain("时机你选");
     expect(text).toContain("checkpoint");
   });
 

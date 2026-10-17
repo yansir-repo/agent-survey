@@ -11,6 +11,8 @@ declare namespace Cloudflare {
     /** Workers AI (deployed only): toMarkdown. */
     AI?: Ai;
     DEEPSEEK_API_KEY: string;
+    /** 其他模型的聚合接口密钥；线上固定为 none（只有 DeepSeek 可用），本地对照时才放真的。 */
+    AIHUBMIX_API_KEY: string;
     DEEPSEEK_MODEL: string;
     ADMIN_TOKEN: string;
     PUBLIC_URL: string;
