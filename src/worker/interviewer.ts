@@ -146,7 +146,10 @@ export class Interviewer extends Think<Cloudflare.Env> {
         baseURL: "https://api.deepseek.com",
         apiKey: this.env.DEEPSEEK_API_KEY ?? "",
         includeUsage: true,
-        transformRequestBody: (body) => ({ ...body, thinking: { type: "disabled" } }),
+        transformRequestBody: (body) => ({
+          ...body,
+          thinking: { type: spec.thinking ? "enabled" : "disabled" },
+        }),
       });
       return provider.chatModel(spec.id);
     }
