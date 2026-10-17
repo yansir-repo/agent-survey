@@ -257,6 +257,7 @@ export const askRound = (raw: unknown) =>
       JSON.stringify(parsed.round.questions),
       yield* Clock.currentTimeMillis,
     );
+    yield* kvSet(`delta.${id}`, parsed.round.delta);
     yield* kvSet("turn.asked", id);
     return { ok: true, message: `第 ${seq} 轮已发给客户。本回合结束，等客户回答。` };
   });
@@ -637,6 +638,8 @@ export const snapshot = Effect.gen(function* () {
   for (const r of rows) {
     rounds.push({
       ...roundOf(r),
+      understanding: JSON.parse(text(r, "understanding") || "[]"),
+      delta: (yield* kvGet(`delta.${text(r, "id")}`)) ?? null,
       status: r["status"],
       answers: (yield* answerRows(text(r, "id"))).map((a) => ({
         qid: a["qid"],

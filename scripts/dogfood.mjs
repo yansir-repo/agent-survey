@@ -219,6 +219,8 @@ log.context = snap.context ?? "";
 log.summary = snap.summary ?? "";
 log.model = snap.model ?? "";
 log.stats = snap.stats ?? {};
+log.stored = snap.rounds ?? [];
+log.refusals = snap.refusals ?? [];
 log.finishedAt = new Date().toISOString();
 save();
 console.log(`[${code}] ${log.done ? "DONE" : "CAPPED"} after ${agentRounds} agent rounds → ${out}`);
