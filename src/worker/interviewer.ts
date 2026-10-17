@@ -7,7 +7,13 @@
  * 加 Think 自带的工作区读写工具。agent 不能做的：重新问被跳过的题（系统补）、改客户的答案、访问内网。
  */
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { Think, type ChatResponseResult, type TurnConfig } from "@cloudflare/think";
+import {
+  Think,
+  Workspace,
+  type ChatResponseResult,
+  type TurnConfig,
+  type WorkspaceLike,
+} from "@cloudflare/think";
 import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } from "ai";
 import { Effect, Layer, Schema } from "effect";
 import type { InterviewView } from "../shared/api.ts";
@@ -72,6 +78,16 @@ export class Interviewer extends Think<Cloudflare.Env> {
   override workspaceBash = false;
   private ready = false;
 
+  /**
+   * 工作区。Think 在自己的 onStart 里才建它，而 Worker 的 RPC（上传文件时的 putFile）可能比 onStart 先到
+   * （实测：部署后第一次醒来就收到上传，`this.workspace` 是 undefined）。这里按 Think 的同一种建法先建好，Think 之后看到已有就沿用。
+   */
+  private ws(): WorkspaceLike {
+    if (!this.workspace)
+      this.workspace = new Workspace({ sql: this.ctx.storage.sql, name: () => this.name });
+    return this.workspace;
+  }
+
   private run<A>(program: Effect.Effect<A, never, Store | Host>): Promise<A> {
     const first = !this.ready;
     this.ready = true;
@@ -85,13 +101,16 @@ export class Interviewer extends Think<Cloudflare.Env> {
     const host: Context<typeof Host> = {
       name: this.name,
       ai: this.env.AI,
-      readFile: (path) => this.workspace.readFile(path).catch(() => null),
+      readFile: (path) =>
+        this.ws()
+          .readFile(path)
+          .catch(() => null),
       writeFile: (path, content) =>
         Promise.resolve(
-          this.workspace.mkdir(path.slice(0, path.lastIndexOf("/")) || "/", { recursive: true }),
-        ).then(() => this.workspace.writeFile(path, content)),
+          this.ws().mkdir(path.slice(0, path.lastIndexOf("/")) || "/", { recursive: true }),
+        ).then(() => this.ws().writeFile(path, content)),
       removeFile: (path) =>
-        Promise.resolve(this.workspace.rm(path)).then(
+        Promise.resolve(this.ws().rm(path)).then(
           () => undefined,
           () => undefined,
         ),

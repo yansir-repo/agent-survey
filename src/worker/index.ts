@@ -15,7 +15,7 @@
  *   GET    /admin/formats                       what toMarkdown supports now vs what we accept
  */
 import { env } from "cloudflare:workers";
-import { Effect, Layer, Schema } from "effect";
+import { Cause, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
@@ -243,7 +243,25 @@ const adminRoute = (db: D1Like) =>
 
 /** One web handler per request: a Workers isolate serves requests concurrently, and I/O created for one request cannot be awaited by another. */
 const buildHandler = (db: D1Like) =>
-  HttpRouter.toWebHandler(Layer.mergeAll(clientRoute(db), adminRoute(db)), { disableLogger: true });
+  HttpRouter.toWebHandler(Layer.mergeAll(clientRoute(db), adminRoute(db)), {
+    disableLogger: true,
+    // A defect in a route is the server's fault, never the customer's: answer in JSON (the page can show it) instead of an empty 500.
+    middleware: (app) =>
+      app.pipe(
+        Effect.catchCause((cause) =>
+          Effect.succeed(
+            json(
+              {
+                ok: false,
+                error: "服务出了点问题，请稍后重试",
+                detail: Cause.pretty(cause).slice(0, 600),
+              },
+              500,
+            ),
+          ),
+        ),
+      ),
+  });
 
 export default {
   fetch(request) {

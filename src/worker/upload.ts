@@ -3,7 +3,7 @@
  * 转 Markdown → 访谈者把文字放进工作区、把记录写进 files 表。守不过的文件不会半收：要么整条链走完，要么原样退回并说明原因。
  */
 import { Effect } from "effect";
-import { acceptsKind, rejectReason, uniquePath } from "../shared/files.ts";
+import { acceptsKind, mimeOf, rejectReason, uniquePath } from "../shared/files.ts";
 import { MAX_FILES_DEFAULT, uploadDir, type Question } from "../shared/questions.ts";
 import { convertFile } from "./convert.ts";
 import type { Interviewer } from "./interviewer.ts";
@@ -51,12 +51,12 @@ export const ingest = (
       taken.add(path);
       const bytes = yield* Effect.promise(() => file.arrayBuffer());
       const r2Key = `${code}/${path}`;
-      const mime = file.type || "application/octet-stream";
+      const mime = mimeOf(file.name, file.type);
       yield* Effect.promise(() =>
         env.FILES.put(r2Key, bytes, { httpMetadata: { contentType: mime } }),
       );
       const conv = yield* convertFile(env.AI, file.name, bytes);
-      yield* Effect.promise(() =>
+      const stored = yield* Effect.tryPromise(() =>
         stub.putFile(
           {
             path,
@@ -70,7 +70,18 @@ export const ingest = (
           },
           conv.ok ? conv.markdown : null,
         ),
-      );
+      ).pipe(Effect.result);
+      if (stored._tag === "Failure") {
+        // 没存成：别留下孤立的原件，也别让整次上传变成一个空的 500——告诉客户这个文件没收成，并留下原因
+        yield* Effect.promise(() => env.FILES.delete(r2Key));
+        const cause = (stored.failure as { cause?: unknown }).cause;
+        out.push({
+          name: file.name,
+          ok: false,
+          error: `保存失败：${cause instanceof Error ? cause.message : "原因不明"}`,
+        });
+        continue;
+      }
       added += 1;
       out.push({
         name: file.name,

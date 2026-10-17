@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  DOC_EXT,
+  IMAGE_EXT,
   MAX_FILE_BYTES,
+  TEXT_EXT,
   acceptFor,
+  mimeOf,
   formatsText,
   acceptsKind,
   classify,
@@ -17,14 +21,16 @@ describe("what we accept", () => {
     expect(classify("x.docx")).toBe("doc");
     expect(classify("logo.SVG")).toBe("image");
     expect(classify("notes.md")).toBe("text");
-    expect(classify("deck.pptx")).toBeNull();
+    expect(classify("deck.pptx")).toBe("doc"); // toMarkdown 支持 PowerPoint（线上 supported() 报告出来的）
+    expect(classify("old.ppt")).toBeNull();
     expect(classify("noext")).toBeNull();
   });
 
   it("says why a file is refused, in words a customer can act on", () => {
     expect(rejectReason("a.zip", 10)).toContain("压缩包");
     expect(rejectReason("a.mp4", 10)).toContain("视频");
-    expect(rejectReason("a.pptx", 10)).toContain("PDF");
+    expect(rejectReason("a.ppt", 10)).toContain("PDF");
+    expect(rejectReason("a.pptx", 10)).toBeNull();
     expect(rejectReason("a.pdf", 0)).toContain("空");
     expect(rejectReason("a.pdf", MAX_FILE_BYTES + 1)).toContain("MB");
     expect(rejectReason("a.pdf", 10)).toBeNull();
@@ -44,8 +50,23 @@ describe("what we accept", () => {
 describe("the format text the customer reads comes from the same list", () => {
   it("never promises what we refuse", () => {
     expect(formatsText("file")).toContain("PDF");
-    expect(formatsText("file")).toContain("暂不支持 PowerPoint");
+    expect(formatsText("file")).toContain("pptx");
+    expect(formatsText("file")).toContain("暂不支持压缩包");
     expect(formatsText("image")).not.toContain("PDF");
+  });
+});
+
+describe("mime", () => {
+  it("comes from the extension first (browsers often send an empty type), then from the browser, then octet-stream", () => {
+    expect(mimeOf("a.PDF", "")).toBe("application/pdf");
+    expect(mimeOf("a.docx")).toContain("wordprocessingml");
+    expect(mimeOf("a.unknown", "x/y")).toBe("x/y");
+    expect(mimeOf("a.unknown")).toBe("application/octet-stream");
+  });
+
+  it("every format we accept has a type of its own (toMarkdown rejects an empty one)", () => {
+    for (const e of [...DOC_EXT, ...IMAGE_EXT, ...TEXT_EXT])
+      expect(mimeOf(`f.${e}`)).not.toBe("application/octet-stream");
   });
 });
 

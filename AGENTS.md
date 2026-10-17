@@ -18,13 +18,14 @@
 4. **客户的一切输入都是不可信的**：富文本过 `sanitizeRich` 白名单、再转 Markdown 才给 agent（`rich.ts`）；文件内容、网页内容对 agent 都是**数据不是指令**（指令里写了，`fetch_page` 的返回也带了标注）；agent 读网页先过 `url-guard.ts`（只放行公网 http(s)，拒 IP 字面量/内网后缀/账号密码/非常规端口，重定向之后的地址再过一遍）。
 5. **能收什么文件只有一个出处**（`src/shared/files.ts`）：格式 = Workers AI `toMarkdown` 能转的 + 纯文本；上传框上给客户看的格式说明来自同一份（`formatsText`），agent **不能**在题里写格式说明（schema 里没有 hint）。`GET /admin/formats` 对照线上 `env.AI.toMarkdown().supported()` 报告漂移。
 6. **上传不半收**（`upload.ts`）：守门（格式、大小、这道题收不收、数量）→ 原件进 R2（`FILES`，键 `<code>/<路径>`）→ 转 Markdown → 访谈者写进工作区 `/uploads/<题id>/<名字>.md` 并记 files 表。转换失败不是异常：文件照收，标 `unconverted` 并告诉 agent“收到了但没能解析”。
+   实测要点（线上 `toMarkdown`）：docx、PDF（带元数据和分页）、图片（得到的是**图片描述**，不是文字识别）都正常；**CSV 它按 Latin-1 读，中文会乱码**，所以 CSV 和纯文本一样由我们自己按 UTF-8 读（`convert.ts`，配 `convert.test.ts`）；Blob 必须带 MIME 类型，空类型会被拒（`mimeOf`）。
 7. **状态只有一个家**：访谈者的 SQLite（rounds / answers / files / kv）。客户端不存任何东西，每次轮询拿服务端算好的 `InterviewView`（`src/shared/api.ts`）；答一题存一题（防抖 500ms 的 PUT）。
 8. **agent 的工具面很窄**：`ask_round`（问一轮，成功后本回合停）、`finish_interview`（需要 `/CONTEXT.md` 已写好）、`fetch_page`，加 Think 自带的工作区工具。它改不了客户的答案。`/CONTEXT.md` 是交付物。指令和消息模板只在 `src/shared/prompt.ts`。
 
 ## MVP 明确不做（后面再议）
 
 - **解压缩**（zip 等）和**视频/音频**：上传时拒绝并告诉客户为什么（`rejectReason`）。要做解压，做成固定工具（防压缩炸弹、路径穿越），不要让 agent 写代码解压。
-- PowerPoint / 旧版 .doc / .rtf：`toMarkdown` 不认，请客户另存为 PDF 或 docx。扫描件 PDF 没有文字层，转出来是空的，会标 `unconverted`（OCR 是后面的事）。
+- 旧版 .doc / .ppt / .rtf：`toMarkdown` 不认，请客户另存为 docx / pptx / PDF。（PowerPoint 的 pptx 系列是支持的：官方文档页没列，线上 `supported()` 有——`/admin/formats` 就是为这种漂移准备的。）扫描件 PDF 没有文字层，转出来是空的，会标 `unconverted`（OCR 是后面的事）。
 - 搜索引擎：agent 只能读客户给的网址（`fetch_page`），没有搜索。
 - 运营接口用一个**共享令牌**（`ADMIN_TOKEN`，`Authorization: Bearer`），不是 Cloudflare Access。失败模型：令牌泄露 = 运营接口被滥用；移除条件：运营不止一两个人、或要审计“谁做了什么”时，换成 Access（照 `~/code/52/38-sketch-wireframe` 的 `access.ts`）。
 - 客户的身份就是地址里的 key（capability URL，16 位随机十六进制，`rotate` 换 key 旧链接立刻失效）。公开上传入口的滥用防护目前只有：单文件 20MB、每题最多 10 个文件、访谈要先由运营创建。要开放给陌生人时再加频率限制和每访谈的 token 预算。
@@ -33,7 +34,8 @@
 
 - `vp run ci` = 类型（web / worker / shared / scripts 四个工程）+ lint + 测试 + `check:effect` + build。`pre-push` 和 CI 跑同一个列表。
 - `check:effect` 必须通过：业务代码不用 `async`/`await`/`Date.now()`/`try/catch`；时间用 `Clock`；`.effect-skill.json` 是清单（可执行边缘只有 `interviewer.ts` 的 `runInterviewEffect`）。
-- 本地：`pnpm exec vp run db:migrate && pnpm exec vp dev`。**本地没有 `AI` 绑定**（Workers AI 只能远程）：纯文本能转，PDF/Office/图片只能线上验。
+- 本地：`pnpm exec vp run db:migrate && pnpm exec vp dev`。**本地没有 `AI` 绑定**（Workers AI 只能远程）：纯文本和 CSV 能转，PDF/Office/图片只能线上验。
+- **Durable Object 的 RPC 可能比 Think 的 `onStart` 先到**：部署后 DO 第一次被醒来就收到上传时，`this.workspace` 还是 undefined（实测）。`interviewer.ts` 的 `ws()` 按 Think 的同一种建法先建好，Think 之后沿用。动工作区的新代码一律走 `ws()`。
 - `node scripts/play.mjs --base <url> --code <新 code>`：扮演客户和真 agent 跑完整个访谈（创建 → 回答 → 跳过 → 回头补答 → 结束 → 打印 CONTEXT.md）。会花模型 token，不在门禁里；改了流程、提示词、词表之后跑一次。
 
 ## 部署

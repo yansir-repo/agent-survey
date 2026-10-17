@@ -2,7 +2,7 @@
  * 上传文件的规则：能收什么、多大、存在哪个路径。纯函数，客户端（拖进来时先挡）和服务端（落库前再挡）共用。
  *
  * 能收的格式 = Workers AI 的 toMarkdown 能转的（官方清单，`/admin/formats` 会对照线上 `supported()` 报告漂移）+ 纯文本。
- * 不收：压缩包（MVP 不解压）、视频、PowerPoint / 旧版 .doc / .rtf（toMarkdown 不认，请客户另存为 PDF 或 docx）。
+ * 不收：压缩包（MVP 不解压）、视频，以及 toMarkdown 不认的旧版 .doc / .ppt / .rtf（请客户另存为 docx / pptx / PDF）。
  */
 
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -21,6 +21,13 @@ export const DOC_EXT = [
   "odt",
   "csv",
   "numbers",
+  "pptx",
+  "ppsx",
+  "potx",
+  "pptm",
+  "ppsm",
+  "odp",
+  "otp",
   "html",
   "htm",
   "xml",
@@ -51,8 +58,8 @@ export const rejectReason = (name: string, bytes: number): string | null => {
   if (["zip", "rar", "7z", "tar", "gz"].includes(e)) return "暂不支持压缩包，请把文件分别上传";
   if (["mp4", "mov", "avi", "mkv", "webm", "mp3", "wav", "m4a"].includes(e))
     return "暂不支持视频和音频";
-  if (["ppt", "pptx", "doc", "rtf", "pages", "key"].includes(e))
-    return "暂不支持这种格式，请另存为 PDF 或 docx 再上传";
+  if (["ppt", "doc", "rtf", "pages", "key"].includes(e))
+    return "暂不支持这种旧格式，请另存为 PDF、docx 或 pptx 再上传";
   return "暂不支持这种格式";
 };
 
@@ -64,12 +71,48 @@ export const acceptFor = (kind: "image" | "file"): string =>
 export const formatsText = (kind: "image" | "file"): string =>
   kind === "image"
     ? `支持 JPG、PNG、WebP、SVG、GIF、BMP；单个不超过 ${MAX_FILE_BYTES / 1024 / 1024}MB；可以一次选多张`
-    : `支持 PDF、Word（docx）、Excel / CSV、HTML、纯文本和图片；暂不支持 PowerPoint、压缩包和视频，请另存为 PDF；单个不超过 ${MAX_FILE_BYTES / 1024 / 1024}MB；可以一次选多个`;
+    : `支持 PDF、Word（docx）、PowerPoint（pptx）、Excel / CSV、HTML、纯文本和图片；暂不支持压缩包、视频和旧版 .doc / .ppt；单个不超过 ${MAX_FILE_BYTES / 1024 / 1024}MB；可以一次选多个`;
 
 export const acceptsKind = (kind: "image" | "file", name: string): boolean => {
   const c = classify(name);
   return kind === "image" ? c === "image" : c === "doc" || c === "text" || c === "image";
 };
+
+/** 扩展名 → MIME。toMarkdown 要 Blob 带类型（空类型会被拒：“expected string to have >=1 characters”），浏览器给的 type 不一定有。 */
+const MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xlsm: "application/vnd.ms-excel.sheet.macroenabled.12",
+  xlsb: "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+  xls: "application/vnd.ms-excel",
+  et: "application/vnd.ms-excel",
+  ods: "application/vnd.oasis.opendocument.spreadsheet",
+  odt: "application/vnd.oasis.opendocument.text",
+  odp: "application/vnd.oasis.opendocument.presentation",
+  otp: "application/vnd.oasis.opendocument.presentation-template",
+  csv: "text/csv",
+  numbers: "application/vnd.apple.numbers",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppsx: "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+  potx: "application/vnd.openxmlformats-officedocument.presentationml.template",
+  pptm: "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+  ppsm: "application/vnd.ms-powerpoint.slideshow.macroenabled.12",
+  html: "text/html",
+  htm: "text/html",
+  xml: "application/xml",
+  txt: "text/plain",
+  md: "text/markdown",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  gif: "image/gif",
+  bmp: "image/bmp",
+};
+export const mimeOf = (name: string, given?: string): string =>
+  MIME[extOf(name)] ?? (given && given !== "" ? given : "application/octet-stream");
 
 /** 文件名净化：去掉路径和控制字符，限长，保留扩展名。 */
 export const safeName = (name: string): string => {
