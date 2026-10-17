@@ -29,10 +29,17 @@
 - 第一个预设 `cross-border-website`（给米站的网站需求访谈）从生成式推出：**网站 = 由「访客的决定」选出的「证据」，终止于一个「动作」，受「真实」约束**；范围切在“动作”那一刻的交接接口（只有“报价需要知道什么→表单字段”和“多快回应→页面承诺”穿过它），所以销售流程不再是无限话题；完成的判据是每个元素都能写成“访客疑虑→证据→资产（有/要补/给不了）”三元组。改这份预设后，用 `scripts/dogfood.mjs` + `scripts/judge.mjs` 对照跑（见 `docs/dogfood-2026-10-17.md`）。
 - 轮数**不设上限**、也没有强制结束；每轮 1–5 题由 agent 定；收集资料由 agent 判断（不卡第一轮）。
 
-## 阶段检查点（`machine.ts` 的 `STAGE_ROUNDS = 10`）
+## 阶段检查点（`machine.ts`：`STAGE_ROUNDS = 10` 开始催，`STAGE_FORCE = 16` 强制）
 
-- 每满 10 个 agent 轮，**系统**要求检查点：agent 不能再 `ask_round`（工具和状态机两头都拒），必须先重写 `CONTEXT.md`（和上一个检查点相比要真改过：指纹不同），再调 `checkpoint`，把这一阶段听到的 6–12 条要点交给客户。题目由系统生成（agent 不能夹带别的题）：每条一道选填单选——对 / 不确定 / 不对，应该是…（客户自己写，`otherLabel`）。客户的纠正以他写的为准。
-- 客户页上的倒计时（`InterviewView.stage`）是**系统数的**，所以诚实：只说“本阶段第 N / 10 轮”，不声称总共多少轮；回头补答那一轮不计入。
+- 一个阶段问满 10 个 agent 轮之后，**系统开始催**检查点；**时机由 agent 选**——把手头这一块问完、到自然的停顿点再做，不机械卡在第 10、20 轮（否则最后一个阶段可能只剩一两题还被迫小结）。拖到第 16 轮，系统强制：`ask_round` 被拒（工具和状态机两头都拒），必须先做检查点。agent 直接 `finish_interview` 永远允许，不需要最后补一次小结。
+- 检查点怎么做：先重写 `CONTEXT.md`（和上一个检查点相比要真改过：指纹不同），再调 `checkpoint`，把这一阶段听到的 6–12 条要点交给客户。题目由系统生成（agent 不能夹带别的题）：每条一道选填单选——对 / 不确定 / 不对，应该是…（客户自己写，`otherLabel`）。客户的纠正以他写的为准。
+- 客户页上的阶段提示（`InterviewView.stage`）是**系统数的**，所以诚实：满 10 轮之前只说“再问大约 N 轮”，之后不再画倒计时，只说“第几轮、问完手头这一块就给你小结”；回头补答那一轮不计入。
+
+## 模型（`src/shared/models.ts`，发链接时 `model` 选）
+
+- 访谈者用哪个模型是**每个访谈**的选择，创建时存进去（D1 `interviews.model` 和 DO 的 kv）。名字是我们自己的稳定名字（`deepseek-flash` / `claude-sonnet-5-5` / `claude-haiku-5-5` / `gpt-6.1-sol` / `gpt-6-luna`）；DeepSeek 直连，其余经 AIHubMix（OpenAI 兼容的聚合接口，`AIHUBMIX_API_KEY`）。**线上这个密钥固定为 `none`**，所以线上只有 DeepSeek 可用（`GET /admin/models` 报各模型是否可用）；要在线上用别的，先给 Worker 配真密钥。
+- `docs/model-comparison-2026-10-17.md`：同一份提示词、同一位模拟客户下的对比。摘要：DeepSeek 最快且零协议摩擦，但最像“填问卷”；Sonnet 5.5 最贴预设的方法；Haiku 5.5 碎且重复；GPT 6.1 Sol 深但慢 5 倍；GPT 6 Luna 在这个用法下卡死。每个模型只跑了一次，评分是 LLM 打的。
+- `GET /admin/interviews/<code>` 的 `stats` 记协议摩擦：`askRefused`（提问被拒）、`nudges`（回合没调任何工具被提醒）、`turnErrors`、`checkpointRefused`、`finishRefused`。
 
 ## 无人值守对照（`scripts/dogfood.mjs`、`scripts/judge.mjs`、`scripts/personas/`）
 
