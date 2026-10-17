@@ -109,19 +109,42 @@ export const parseAskRound = (
         .replace(/^SchemaError\(/, "")
         .slice(0, 900),
     };
+  // 系统自己会加“其他（自己写）”：agent 写的“其他”类选项去掉，免得客户看到两个
+  const questions = r.success.questions.map((q) =>
+    q.kind === "single" || q.kind === "multi"
+      ? { ...q, options: q.options.filter((o) => !/^其他([（(：:，,\s].*)?$/.test(o.label.trim())) }
+      : q,
+  );
+  const short = questions.find(
+    (q) => (q.kind === "single" || q.kind === "multi") && q.options.length < 2,
+  );
+  if (short)
+    return {
+      ok: false,
+      error: `题 ${short.id}：去掉“其他”之后选项不足 2 个（系统会自动给每道单选/多选加一个“其他（自己写）”，你不用写）`,
+    };
   const seen = new Set<string>();
-  for (const q of r.success.questions) {
+  for (const q of questions) {
     if (seen.has(q.id)) return { ok: false, error: `题目 id 重复：${q.id}` };
     if (usedIds.has(q.id)) return { ok: false, error: `题目 id ${q.id} 以前用过，换一个新的` };
     seen.add(q.id);
   }
-  return { ok: true, round: r.success };
+  return { ok: true, round: { ...r.success, questions } };
 };
 
 // ---- 答案 ----
 
 /** 答案的值：文字/数字/选项（单选一个、多选多个）/ 链接们 / 上传文件的路径们。富文本存的是净化后的 HTML。 */
 export type Value = string | number | ReadonlyArray<string>;
+
+/**
+ * 单选/多选的“其他（自己写）”：系统给每道单选、多选题自动加一个，agent 不用也不能自己写“其他”选项
+ * （parseAskRound 会把它们去掉）。自己写的答案存成 `其他：<文字>`——前缀是保留的，所以和 agent 的选项不会混。
+ */
+export const OTHER_PREFIX = "其他：";
+export const MAX_OTHER = 200;
+export const isOther = (v: string): boolean => v.startsWith(OTHER_PREFIX);
+export const otherText = (v: string): string => v.slice(OTHER_PREFIX.length).trim();
 
 export const MAX_TEXT = 500;
 export const MAX_LONG = 8000;
@@ -150,16 +173,31 @@ export const validateAnswer = (q: Question, raw: unknown): Checked => {
   switch (q.kind) {
     case "single": {
       if (typeof raw !== "string") return bad("单选的答案是一个选项");
-      return q.options.some((o) => o.label === raw) ? good(raw) : bad("不是这道题的选项");
+      if (q.options.some((o) => o.label === raw)) return good(raw);
+      if (isOther(raw)) {
+        const t = otherText(raw);
+        if (t === "") return bad("请写下你的答案");
+        return t.length > MAX_OTHER ? bad(`最多 ${MAX_OTHER} 个字`) : good(OTHER_PREFIX + t);
+      }
+      return bad("不是这道题的选项");
     }
     case "multi": {
       if (!Array.isArray(raw) || raw.some((x) => typeof x !== "string"))
         return bad("多选的答案是一组选项");
-      const picked = [...new Set(raw as string[])];
-      if (picked.length === 0) return bad("至少选一个");
-      return picked.every((p) => q.options.some((o) => o.label === p))
-        ? good(picked)
-        : bad("有不是这道题选项的值");
+      const picked: string[] = [];
+      let others = 0;
+      for (const p of new Set(raw as string[])) {
+        if (q.options.some((o) => o.label === p)) picked.push(p);
+        else if (isOther(p)) {
+          const t = otherText(p);
+          if (t === "") return bad("请写下你补充的选项");
+          if (t.length > MAX_OTHER) return bad(`最多 ${MAX_OTHER} 个字`);
+          others += 1;
+          picked.push(OTHER_PREFIX + t);
+        } else return bad("有不是这道题选项的值");
+      }
+      if (others > 1) return bad("自己补充的只能写一条");
+      return picked.length === 0 ? bad("至少选一个") : good(picked);
     }
     case "number": {
       const n =

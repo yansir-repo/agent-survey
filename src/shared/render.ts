@@ -4,19 +4,25 @@
  */
 import type { FileInfo } from "./api.ts";
 import { markdownPath } from "./files.ts";
-import type { Question, Value } from "./questions.ts";
+import { isOther, otherText, type Question, type Value } from "./questions.ts";
 import { richToMarkdown } from "./rich.ts";
+
+/** 客户自己写的选项（“其他：xxx”）要让 agent 看得出这不是你给的选项。 */
+const plainOption = (v: string): string =>
+  isOther(v) ? `其他（客户自己写的）：${otherText(v)}` : v;
 
 /** 一个答案的 Markdown 正文（不含标题）。 */
 export const valueMarkdown = (q: Question, v: Value, files: ReadonlyArray<FileInfo>): string => {
   switch (q.kind) {
     case "single":
+      return plainOption(String(v));
     case "text":
     case "long":
       return String(v);
     case "number":
       return `${String(v)}${q.unit ? ` ${q.unit}` : ""}`;
     case "multi":
+      return (v as ReadonlyArray<string>).map((x) => `- ${plainOption(x)}`).join("\n");
     case "link":
       return (v as ReadonlyArray<string>).map((x) => `- ${x}`).join("\n");
     case "rich":

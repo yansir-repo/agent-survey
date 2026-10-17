@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  OTHER_PREFIX,
   QUESTION_KINDS,
   parseAskRound,
   uploadDir,
@@ -87,6 +88,75 @@ describe("parseAskRound", () => {
     expect(r1.ok ? "" : r1.error).toContain("重复");
     const r2 = parseAskRound(ok([dup[0]]), new Set(["a"]));
     expect(r2.ok ? "" : r2.error).toContain("用过");
+  });
+});
+
+describe("the free-text 'other' option the system adds to every single/multi question", () => {
+  const ok = (questions: unknown[]) => ({ intro: "hi", questions });
+  const multi = q("multi", { options: [{ label: "A" }, { label: "B" }] });
+
+  it("the agent's own 其他 options are removed (the customer would see two); a real option that merely starts with 其他 stays", () => {
+    const r = parseAskRound(
+      ok([
+        {
+          id: "a",
+          kind: "single",
+          title: "T",
+          why: "W",
+          options: [
+            { label: "A" },
+            { label: "B" },
+            { label: "其他" },
+            { label: "其他（请说明）" },
+            { label: "其他地区" },
+          ],
+        },
+      ]),
+      new Set(),
+    );
+    expect(r.ok).toBe(true);
+    const labels =
+      r.ok && r.round.questions[0]!.kind === "single"
+        ? r.round.questions[0]!.options.map((o) => o.label)
+        : [];
+    expect(labels).toEqual(["A", "B", "其他地区"]);
+  });
+
+  it("if removing them leaves fewer than two real options, the agent is told why", () => {
+    const r = parseAskRound(
+      ok([
+        {
+          id: "a",
+          kind: "multi",
+          title: "T",
+          why: "W",
+          options: [{ label: "A" }, { label: "其他" }],
+        },
+      ]),
+      new Set(),
+    );
+    expect(r.ok ? "" : r.error).toContain("不足 2 个");
+  });
+
+  it("single: a written answer is accepted as 其他：text, trimmed, never empty, bounded", () => {
+    expect(validateAnswer(single, `${OTHER_PREFIX}  我自己的  `)).toEqual({
+      ok: true,
+      value: "其他：我自己的",
+    });
+    expect(validateAnswer(single, OTHER_PREFIX).ok).toBe(false);
+    expect(validateAnswer(single, `${OTHER_PREFIX}${"x".repeat(201)}`).ok).toBe(false);
+    expect(validateAnswer(single, "其他").ok).toBe(false); // 没有前缀的“其他”不是选项
+  });
+
+  it("multi: options plus at most one written addition", () => {
+    expect(validateAnswer(multi, ["A", `${OTHER_PREFIX}C`])).toEqual({
+      ok: true,
+      value: ["A", "其他：C"],
+    });
+    expect(validateAnswer(multi, [`${OTHER_PREFIX}C`])).toEqual({ ok: true, value: ["其他：C"] });
+    expect(validateAnswer(multi, [`${OTHER_PREFIX}C`, `${OTHER_PREFIX}D`]).ok).toBe(false);
+    expect(validateAnswer(multi, ["A", OTHER_PREFIX]).ok).toBe(false);
+    expect(validateAnswer(multi, ["Z"]).ok).toBe(false);
   });
 });
 

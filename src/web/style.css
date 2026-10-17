@@ -681,3 +681,13 @@ ul.know {
   color: var(--ok);
   font-size: 12px;
 }
+.opt.other {
+  border-style: dashed;
+  color: var(--mute);
+}
+.opt.other.on {
+  color: var(--ink);
+}
+.other-in {
+  margin-top: 10px;
+}

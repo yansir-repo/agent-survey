@@ -5,7 +5,14 @@
 import "./style.css";
 import type { FileInfo, InterviewView } from "../shared/api.ts";
 import { acceptFor, acceptsKind, formatsText, rejectReason } from "../shared/files.ts";
-import { validateAnswer, type Question, type Value } from "../shared/questions.ts";
+import {
+  OTHER_PREFIX,
+  isOther,
+  otherText,
+  validateAnswer,
+  type Question,
+  type Value,
+} from "../shared/questions.ts";
 import { richText, sanitizeRich } from "../shared/rich.ts";
 
 const KIND_NAME: Record<Question["kind"], string> = {
@@ -58,10 +65,27 @@ const request = async <T>(
   return { status: res.status, data: (await res.json().catch(() => ({}))) as T };
 };
 
+/** 单选/多选里“其他（自己写）”的输入框现在展开着的题（展开了但还没写字时，答案里还没有它）。 */
+const otherOpen = new Set<string>();
+const isOtherOpen = (q: Question): boolean => {
+  const v = values[q.id];
+  return (
+    otherOpen.has(q.id) ||
+    (typeof v === "string" && isOther(v)) ||
+    (Array.isArray(v) && v.some((x) => isOther(String(x))))
+  );
+};
+
 const questions = (): ReadonlyArray<Question> => view?.round?.questions ?? [];
 const hasContent = (q: Question): boolean => {
   const v = values[q.id];
   if (v === undefined) return false;
+  if (q.kind === "single" || q.kind === "multi") {
+    // 只写了“其他：”还没写字，不算答了；多选里别的选项照算
+    return q.kind === "single"
+      ? validateAnswer(q, v).ok
+      : Array.isArray(v) && v.some((x) => !isOther(String(x)) || otherText(String(x)) !== "");
+  }
   if (q.kind === "rich") return richText(String(v)) !== "";
   if (Array.isArray(v)) return v.some((x) => String(x).trim() !== "");
   return String(v).trim() !== "";
@@ -197,9 +221,29 @@ const bodyHtml = (q: Question): string => {
     case "number":
       return `<div class="numrow"><input type="number" data-in="${q.id}" value="${esc(a ?? "")}">${q.unit ? `<span>${esc(q.unit)}</span>` : ""}</div>`;
     case "single":
-      return `<div class="opts">${q.options.map((o) => `<button class="opt ${a === o.label ? "on" : ""}" data-pick="${q.id}" data-v="${esc(o.label)}">${esc(o.label)}${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ""}</button>`).join("")}</div>`;
-    case "multi":
-      return `<div class="opts">${q.options.map((o) => `<button class="opt ${Array.isArray(a) && a.includes(o.label) ? "on" : ""}" data-multi="${q.id}" data-v="${esc(o.label)}">${esc(o.label)}${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ""}</button>`).join("")}</div>`;
+    case "multi": {
+      const picked = (o: string): boolean =>
+        q.kind === "single" ? a === o : Array.isArray(a) && a.includes(o);
+      const mine =
+        q.kind === "single"
+          ? typeof a === "string" && isOther(a)
+            ? otherText(a)
+            : ""
+          : otherText(String(Array.isArray(a) ? (a.find((x) => isOther(String(x))) ?? "") : ""));
+      const open = isOtherOpen(q);
+      return `<div class="opts">${q.options
+        .map(
+          (o) =>
+            `<button class="opt ${picked(o.label) ? "on" : ""}" data-${q.kind === "single" ? "pick" : "multi"}="${q.id}" data-v="${esc(o.label)}">${esc(o.label)}${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ""}</button>`,
+        )
+        .join(
+          "",
+        )}<button class="opt other ${open ? "on" : ""}" data-other="${q.id}">${q.kind === "single" ? "其他（自己写）" : "补充一个选项"}</button></div>${
+        open
+          ? `<input type="text" class="other-in" data-otherin="${q.id}" maxlength="200" placeholder="写下你的答案" value="${esc(mine)}">`
+          : ""
+      }`;
+    }
     case "rich":
       return `<div class="rich-box"><div class="rich-tools">
         <button type="button" data-cmd="bold" title="加粗"><b>B</b></button><button type="button" data-cmd="italic" title="斜体"><i>I</i></button>
@@ -286,7 +330,7 @@ const setValue = (q: Question, v: Value | undefined): void => {
 document.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
   const el = t.closest<HTMLElement>(
-    "[data-act],[data-pick],[data-multi],[data-skip],[data-unskip],[data-addlink],[data-rm],[data-drop]",
+    "[data-act],[data-pick],[data-multi],[data-other],[data-skip],[data-unskip],[data-addlink],[data-rm],[data-drop]",
   );
   if (!el) return;
   const d = el.dataset;
@@ -296,9 +340,31 @@ document.addEventListener("click", (e) => {
   if (d["pick"]) {
     const q = find(d["pick"]);
     if (!q) return;
+    otherOpen.delete(q.id); // 选了一个现成的选项，“自己写”就收起来
     setValue(q, values[q.id] === d["v"] ? undefined : (d["v"] as string)); // 再点一次已选的 = 取消
     save(q);
     render();
+    return;
+  }
+  if (d["other"]) {
+    const q = find(d["other"]);
+    if (!q) return;
+    if (isOtherOpen(q)) {
+      // 收起：自己写的那条拿掉（单选就是清空答案）
+      otherOpen.delete(q.id);
+      const v = values[q.id];
+      if (q.kind === "single") setValue(q, typeof v === "string" && isOther(v) ? undefined : v);
+      else {
+        const rest = (Array.isArray(v) ? v : []).filter((x) => !isOther(String(x)));
+        setValue(q, rest.length ? rest : undefined);
+      }
+    } else {
+      otherOpen.add(q.id);
+      if (q.kind === "single") delete values[q.id]; // 单选：写自己的，就不再选现成的
+    }
+    save(q);
+    render();
+    $<HTMLInputElement>(`[data-otherin="${q.id}"]`)?.focus();
     return;
   }
   if (d["multi"]) {
@@ -342,6 +408,18 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("input", (e) => {
   const t = e.target as HTMLInputElement & HTMLElement;
+  const otherQ = t.dataset["otherin"] ? find(t.dataset["otherin"]) : undefined;
+  if (otherQ) {
+    const text = t.value.trim();
+    if (otherQ.kind === "single") setValue(otherQ, text ? OTHER_PREFIX + text : undefined);
+    else {
+      const rest = ((values[otherQ.id] as string[] | undefined) ?? []).filter((x) => !isOther(x));
+      setValue(otherQ, text ? [...rest, OTHER_PREFIX + text] : rest.length ? rest : undefined);
+    }
+    save(otherQ);
+    refreshQ(otherQ);
+    return;
+  }
   const qid = t.dataset["in"] ?? t.dataset["rich"] ?? t.dataset["link"];
   if (!qid) return;
   const q = find(qid);

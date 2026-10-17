@@ -13,6 +13,15 @@ describe("what the agent reads", () => {
     expect(md).toContain("不用重复问");
   });
 
+  it("an answer the customer wrote himself is marked as such, so the agent does not mistake it for one of its own options", () => {
+    expect(valueMarkdown(q("single", { options: [] }), "其他：做代工", [])).toBe(
+      "其他（客户自己写的）：做代工",
+    );
+    expect(valueMarkdown(q("multi", { options: [] }), ["A", "其他：C"], [])).toBe(
+      "- A\n- 其他（客户自己写的）：C",
+    );
+  });
+
   it("rich text arrives as markdown, not HTML", () => {
     expect(valueMarkdown(q("rich"), "<b>a</b><ul><li>x</li></ul>", [])).toBe("**a**\n- x");
   });
