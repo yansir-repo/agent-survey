@@ -8,7 +8,7 @@
  * 存什么：rounds 每一轮问了什么（agent 的和系统补的“回头补答”）；answers 当前答案（自动保存）和“稍后再答”；
  * files 客户上传的文件（原件在 R2，转成文字的 Markdown 在工作区 /uploads/…）；kv 状态机、背景、本回合的结果标记。
  */
-import { Clock, Context, Effect } from "effect";
+import { Clock, Context, Effect, Schema } from "effect";
 import type { FileInfo, InterviewView, RoundView } from "../shared/api.ts";
 import { markdownPath } from "../shared/files.ts";
 import {
@@ -26,6 +26,7 @@ import { CONTEXT_PATH, promptText } from "../shared/prompt.ts";
 import {
   MAX_NOTE,
   parseAskRound,
+  stringsOf,
   parseCheckpoint,
   validateAnswer,
   type Question,
@@ -216,6 +217,21 @@ const apply = (e: Event, answers?: Submission) =>
 
 // ---- agent 的工具 ----
 
+/** 客户说过的话：邀请说明 + 所有回答 + 每轮的补充。出题者的 basis 必须逐字出自这里。 */
+const clientWords = Effect.gen(function* () {
+  const answers = yield* q("SELECT value FROM answers");
+  const notes = yield* q("SELECT v FROM kv WHERE k LIKE 'note:%'");
+  const parse = (s: string): unknown => {
+    const r = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))(s);
+    return r._tag === "Success" ? r.success : s;
+  };
+  return [
+    (yield* kvGet("brief")) ?? "",
+    ...answers.flatMap((r) => (r["value"] === null ? [] : stringsOf(parse(text(r, "value"))))),
+    ...notes.map((r) => text(r, "v")),
+  ].join("\n");
+});
+
 export const askRound = (raw: unknown) =>
   Effect.gen(function* () {
     if (checkpointForced(yield* loadMachine))
@@ -224,7 +240,7 @@ export const askRound = (raw: unknown) =>
         message: `现在必须做检查点：先更新 ${CONTEXT_PATH}，再调用 checkpoint，不能 ask_round。`,
       };
     const used = new Set((yield* allQuestions).map((x) => x.id));
-    const parsed = parseAskRound(raw, used);
+    const parsed = parseAskRound(raw, used, yield* clientWords);
     if (!parsed.ok) {
       yield* bump("askRefused");
       return { ok: false, message: `这一轮没有发出：${parsed.error}。改正后重新调用 ask_round。` };

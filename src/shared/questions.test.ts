@@ -3,6 +3,7 @@ import {
   OTHER_PREFIX,
   QUESTION_KINDS,
   parseAskRound,
+  groundingProblems,
   parseCheckpoint,
   uploadDir,
   validateAnswer,
@@ -30,7 +31,7 @@ describe("the closed vocabulary", () => {
 });
 
 describe("parseAskRound", () => {
-  const ok = (questions: unknown[]) => ({ intro: "hi", questions });
+  const ok = (questions: unknown[]) => ({ delta: "d", intro: "hi", questions });
 
   it("accepts 1-5 well-formed questions", () => {
     const r = parseAskRound(ok([{ id: "a", kind: "text", title: "T", why: "W" }]), new Set());
@@ -107,7 +108,7 @@ describe("parseAskRound", () => {
 });
 
 describe("the free-text 'other' option the system adds to every single/multi question", () => {
-  const ok = (questions: unknown[]) => ({ intro: "hi", questions });
+  const ok = (questions: unknown[]) => ({ delta: "d", intro: "hi", questions });
   const multi = q("multi", { options: [{ label: "A" }, { label: "B" }] });
 
   it("the agent's own 其他 options are removed (the customer would see two); a real option that merely starts with 其他 stays", () => {
@@ -276,5 +277,33 @@ describe("checkpoint: the agent supplies the claims, the system builds the quest
       ok: true,
       value: "其他：其实主要是中东",
     });
+  });
+});
+
+describe("no basis, no options (groundingProblems)", () => {
+  const words = "我们主要做 OEM，最近一单是德国客户，要 5000 只带 logo 的杯子。";
+  const base = { resolves: "首页第一句", why: "W" };
+  const opt = { options: [{ label: "A" }, { label: "B" }] };
+  const mk = (extra: Record<string, unknown>, kind: "single" | "text" = "single") => [
+    q(kind, { ...base, ...(kind === "single" ? opt : {}), ...extra }),
+  ];
+
+  it("a choice question quoting the customer verbatim passes (spacing and punctuation don't matter)", () => {
+    expect(groundingProblems(mk({ mode: "confirm", basis: "最近一单是德国客户" }), words)).toEqual(
+      [],
+    );
+  });
+  it("a basis the customer never said is refused", () => {
+    expect(
+      groundingProblems(mk({ mode: "confirm", basis: "主要做自有品牌批发" }), words),
+    ).toHaveLength(1);
+  });
+  it("a choice question cannot be explore, and explore text needs no quote", () => {
+    expect(groundingProblems(mk({ mode: "explore" }), words)).toHaveLength(1);
+    expect(groundingProblems(mk({ mode: "explore" }, "text"), words)).toEqual([]);
+  });
+  it("resolves and mode are required; a too-short basis does not count", () => {
+    expect(groundingProblems([q("text")], words)).toHaveLength(1);
+    expect(groundingProblems(mk({ mode: "confirm", basis: "OEM" }), words)).toHaveLength(1);
   });
 });

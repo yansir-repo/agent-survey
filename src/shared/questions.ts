@@ -27,6 +27,15 @@ const base = {
    * （“稍后再答”是另一回事：那是客户想答但现在答不了，系统会补问。）
    */
   optional: Schema.optionalKey(Schema.Boolean),
+  /**
+   * 出题者的自检（agent 发起的题必填，系统自己生成的检查点题没有）：
+   *   resolves 这题消除的是哪一处“不问我就得编”的地方；
+   *   mode     explore = 我对这块没有依据，听客户自己说；confirm = 选项来自客户说过的话，在验证一个假设；
+   *   basis    confirm 必填：客户（或邀请说明里）的原话，逐字——系统会在他说过的话里找它。
+   */
+  resolves: Schema.optionalKey(Short(200)),
+  mode: Schema.optionalKey(Schema.Literals(["explore", "confirm"])),
+  basis: Schema.optionalKey(Short(200)),
 };
 
 /** otherLabel：“其他（自己写）”那个选项换成别的字（检查点里是“不对，应该是…”）。 */
@@ -100,6 +109,8 @@ export const MAX_NOTE = 2000;
 
 /** agent 一轮问什么：1–5 题，加一句开场白，以及“我现在的理解”（让客户纠错，不是进度）。 */
 export const AskRound = Schema.Struct({
+  /** 上一轮回答让 CONTEXT.md 变了什么、推翻了我哪个假设（第一轮写“第一轮，尚无回答”）。 */
+  delta: Short(400),
   intro: Short(400),
   understanding: Schema.optionalKey(
     Schema.Array(Schema.Struct({ topic: Short(40), text: Short(300) })).check(
@@ -116,9 +127,54 @@ export type AskRound = typeof AskRound.Type;
 const decodeAsk = Schema.decodeUnknownResult(AskRound, { onExcessProperty: "error" });
 
 /** 一轮提问的入口检查：结构对、id 不重复、不和以前问过的 id 撞。失败是 agent 读得懂的话。 */
+/** 比对用的归一化：去掉标签、空白和标点，转小写。 */
+export const normalizeText = (t: string): string =>
+  t
+    .replace(/<[^>]*>/g, "")
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]/gu, "");
+
+/** 答案的存储值（JSON）里的所有文字。 */
+export const stringsOf = (v: unknown): string[] =>
+  typeof v === "string"
+    ? [v]
+    : Array.isArray(v)
+      ? v.flatMap(stringsOf)
+      : v !== null && typeof v === "object"
+        ? Object.values(v).flatMap(stringsOf)
+        : [];
+
+/**
+ * “没有依据就不给选项”：每题必须声明 resolves 和 mode；单选/多选必须是 confirm，且 basis 要逐字出现在客户说过的话里
+ * （corpus = 邀请说明 + 他所有的回答和补充）。探索题不能带选项。返回 agent 读得懂的问题清单。
+ */
+export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: string): string[] => {
+  const hay = normalizeText(corpus);
+  return questions.flatMap((q) => {
+    if (q.resolves === undefined || q.mode === undefined)
+      return [
+        `题 ${q.id}：必须写 resolves（这题消除哪处“本来得编”的地方）和 mode（explore | confirm）`,
+      ];
+    const choice = q.kind === "single" || q.kind === "multi";
+    if (choice && q.mode === "explore")
+      return [
+        `题 ${q.id}：explore 不能给选项——你对这块没有依据时，先用开放题（text/long）听客户自己说`,
+      ];
+    if (q.mode === "confirm") {
+      const b = normalizeText(q.basis ?? "");
+      if (b.length < 4) return [`题 ${q.id}：confirm 必须在 basis 里引用客户的原话（至少 4 个字）`];
+      if (!hay.includes(b))
+        return [`题 ${q.id}：basis「${q.basis}」没有在客户说过的话里找到——必须逐字引用他的原话`];
+    }
+    if (choice && q.mode !== "confirm") return [`题 ${q.id}：选项题必须是 confirm`];
+    return [];
+  });
+};
+
 export const parseAskRound = (
   input: unknown,
   usedIds: ReadonlySet<string>,
+  corpus: string | null = null,
 ): { ok: true; round: AskRound } | { ok: false; error: string } => {
   const r = decodeAsk(input);
   if (r._tag !== "Success")
@@ -147,6 +203,10 @@ export const parseAskRound = (
     if (seen.has(q.id)) return { ok: false, error: `题目 id 重复：${q.id}` };
     if (usedIds.has(q.id)) return { ok: false, error: `题目 id ${q.id} 以前用过，换一个新的` };
     seen.add(q.id);
+  }
+  if (corpus !== null) {
+    const problems = groundingProblems(questions, corpus);
+    if (problems.length > 0) return { ok: false, error: problems.join("；") };
   }
   return { ok: true, round: { ...r.success, questions } };
 };
