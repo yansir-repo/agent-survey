@@ -1,0 +1,15 @@
+#!/bin/sh
+# Push-time half of the gate: the same judgments CI's `verify` makes (`pre-push` in
+# vite.config.ts), so a push cannot pass what CI fails. `build` stays CI's own last step.
+#
+# Installed by `vp config --hooks` (which runs from `postinstall`); the dispatcher that calls this
+# file is generated into `.vite-hooks/_/`, which is not committed. Opt out per clone with
+# `git config vp.hooks.disabled true`, or per command with `VP_GIT_HOOKS=0`.
+set -e
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+if [ ! -x node_modules/.bin/vp ]; then
+  echo "pre-push: dependencies are not installed; skipping the local gate." >&2
+  exit 0
+fi
+exec node_modules/.bin/vp run pre-push

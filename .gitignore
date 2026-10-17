@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+.env*
+.dev.vars
+.cloudflare/
+.wrangler/
+dist/
+data/

@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>需求访谈 · 米站（mockup）</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #fff; --ink: #23201b; --mute: #7a7468; --line: #e4dfd3;
+    --accent: #c8541c; --accent-soft: #fbeee6; --ok: #2f7d4f; --ok-soft: #e6f3ea; --warn: #9a6a00; --warn-soft: #fbf1d8;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
+  .top { position: sticky; top: 0; z-index: 5; background: rgba(246,244,239,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .top-in { max-width: 1080px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  .brand { font-weight: 700; letter-spacing: .02em; }
+  .brand small { font-weight: 400; color: var(--mute); margin-left: 8px; }
+  .grow { flex: 1; }
+  .saved { color: var(--mute); font-size: 13px; }
+  .pill-btn { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 13px; color: var(--ink); }
+  .pill-btn:hover { border-color: var(--accent); }
+  .pill-btn b { color: var(--warn); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 120px; display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } aside { order: -1; } .saved { display: none; } }
+
+  .round-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  .round-head h1 { margin: 0; font-size: 22px; }
+  .round-head .tag { font-size: 13px; color: var(--mute); }
+  .lead { color: var(--mute); margin: 0 0 18px; }
+
+  .q { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; transition: border-color .15s; }
+  .q.filled { border-color: #cfe4d6; }
+  .q.skipped { background: #faf8f3; border-style: dashed; }
+  .q-top { display: flex; gap: 10px; align-items: flex-start; }
+  .num { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 700; display: grid; place-items: center; margin-top: 2px; }
+  .q.filled .num { background: var(--ok-soft); color: var(--ok); }
+  .q.skipped .num { background: var(--warn-soft); color: var(--warn); }
+  .q-title { font-weight: 600; font-size: 16px; }
+  .kind { display: inline-block; font-size: 11px; font-weight: 500; color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; margin-left: 8px; vertical-align: 2px; }
+  .q-why { color: var(--mute); font-size: 13px; margin-top: 2px; }
+  .q-why::before { content: "为什么问："; color: var(--accent); }
+  .q-body { margin: 12px 0 0 34px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .opt { border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; cursor: pointer; background: #fff; font: inherit; color: var(--ink); text-align: left; }
+  .opt:hover { border-color: var(--accent); }
+  .opt.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .opt .hint { display: block; font-weight: 400; font-size: 12px; color: var(--mute); }
+  textarea, input[type=text], input[type=number], input[type=url] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; background: #fff; resize: vertical; }
+  textarea:focus, input:focus, .rich-box:focus-within { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .numrow { display: flex; align-items: center; gap: 8px; } .numrow input { width: 160px; } .numrow span { color: var(--mute); }
+  .linkrow { display: flex; gap: 8px; margin-bottom: 8px; } .linkrow .bad { color: #b3261e; font-size: 12px; align-self: center; white-space: nowrap; }
+
+  .rich-box { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+  .rich-tools { display: flex; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--line); background: #faf8f3; }
+  .rich-tools button { border: none; background: none; border-radius: 6px; width: 30px; height: 28px; cursor: pointer; font: inherit; font-size: 14px; color: var(--ink); }
+  .rich-tools button:hover { background: #ece8dd; }
+  .rich-tools .sep { width: 1px; background: var(--line); margin: 4px 4px; }
+  .rich { min-height: 110px; padding: 10px 12px; outline: none; }
+  .rich:empty::before { content: attr(data-ph); color: #a8a295; }
+  .rich ul, .rich ol { margin: 4px 0; padding-left: 22px; } .rich a { color: var(--accent); }
+
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center; color: var(--mute); cursor: pointer; background: #fcfbf8; }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--accent); }
+  .files { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .file { display: flex; align-items: center; gap: 10px; background: #faf8f3; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
+  .file .ico { width: 28px; height: 28px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-size: 10px; font-weight: 700; overflow: hidden; }
+  .file .size { color: var(--mute); margin-left: auto; }
+  .file button { border: none; background: none; cursor: pointer; color: var(--mute); font-size: 16px; }
+  .thumbs { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .thumb { position: relative; width: 84px; height: 84px; border-radius: 10px; border: 1px solid var(--line); background: #faf8f3; overflow: hidden; display: grid; place-items: center; font-size: 11px; color: var(--mute); text-align: center; padding: 4px; word-break: break-all; }
+  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .thumb button { position: absolute; top: 2px; right: 2px; z-index: 1; width: 20px; height: 20px; border-radius: 50%; border: none; background: rgba(0,0,0,.55); color: #fff; cursor: pointer; line-height: 1; }
+
+  .q-foot { display: flex; align-items: center; gap: 12px; margin: 12px 0 0 34px; font-size: 13px; color: var(--mute); flex-wrap: wrap; }
+  .link { background: none; border: none; padding: 0; color: var(--mute); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 3px; }
+  .link:hover { color: var(--accent); }
+  .q { position: relative; }
+  .flash { position: absolute; top: 14px; right: 18px; font-size: 12px; color: var(--ok); opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .flash.show { opacity: 1; }
+  .skipped-note { margin: 10px 0 0 34px; color: var(--warn); font-size: 13px; }
+
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,.95); border-top: 1px solid var(--line); backdrop-filter: blur(8px); z-index: 6; }
+  .bar-in { max-width: 1080px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  .bar .status { color: var(--mute); font-size: 14px; }
+  .bar .status b { color: var(--ink); }
+  .primary { border: none; background: var(--accent); color: #fff; border-radius: 12px; padding: 11px 26px; font: inherit; font-weight: 600; cursor: pointer; }
+  .primary:disabled { background: #d9d4c8; cursor: not-allowed; }
+  .primary:not(:disabled):hover { filter: brightness(1.07); }
+
+  aside .box { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
+  aside h3 { margin: 0 0 10px; font-size: 14px; color: var(--mute); font-weight: 600; letter-spacing: .04em; }
+  .hist { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 14px; }
+  .hist .hd { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .hist.cur .hd { background: var(--accent); }
+  .hist .hs { margin-left: auto; color: var(--mute); font-size: 13px; }
+  .know { font-size: 13px; color: var(--ink); }
+  .know li { margin-bottom: 6px; }
+  .know .k { color: var(--mute); }
+  .know:empty::after { content: "还没有——回答完第一轮后，这里会出现我（agent）的理解，错了你可以直接指出来。"; color: var(--mute); }
+  ul.know { margin: 0; padding-left: 18px; }
+  .wrong { color: var(--mute); font-size: 12px; margin-left: 6px; cursor: pointer; text-decoration: underline; }
+  .note { font-size: 12px; color: var(--mute); line-height: 1.5; }
+
+  .drawer-mask { position: fixed; inset: 0; background: rgba(35,32,27,.35); z-index: 20; display: none; }
+  .drawer-mask.open { display: block; }
+  .drawer { position: absolute; right: 0; top: 0; bottom: 0; width: min(420px, 92vw); background: var(--bg); padding: 22px; overflow: auto; }
+  .drawer h2 { margin: 0 0 4px; font-size: 18px; }
+  .drawer .row { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+  .drawer .row .t { font-weight: 600; }
+  .drawer .row .why { color: var(--mute); font-size: 13px; }
+  .drawer .close { float: right; }
+
+  .center { max-width: 640px; margin: 40px auto; text-align: center; padding: 0 20px; }
+  .center h1 { font-size: 26px; }
+  .center .summary { text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 22px; margin: 22px 0; }
+  .center .summary h3 { margin: 0 0 8px; font-size: 14px; color: var(--mute); }
+  .center .summary li { margin-bottom: 6px; }
+  .thinking { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--mute); padding: 60px 0; }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: sp 0.8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .toast { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; z-index: 30; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .demo { position: fixed; right: 12px; bottom: 74px; z-index: 7; background: #23201b; color: #fff; border-radius: 10px; padding: 8px 12px; font-size: 12px; opacity: .88; max-width: 220px; }
+  .demo button { margin-top: 6px; background: #fff; color: #23201b; border: none; border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="top"><div class="top-in">
+  <div class="brand">需求访谈<small>MZ-0xx · 示例客户</small></div>
+  <div class="grow"></div>
+  <span class="saved">每答一题自动保存，之后接着答</span>
+  <button class="pill-btn" id="deferredBtn">稍后再答 <b id="deferredCount">0</b></button>
+</div></div>
+
+<div id="app"></div>
+<div class="drawer-mask" id="mask"><div class="drawer" id="drawer"></div></div>
+<div class="toast" id="toast"></div>
+<div class="demo">静态 mockup：题目、agent 的“理解”和轮次都是写死的演示数据；回答真的存在这个浏览器里，刷新后还在。<br><button onclick="restart()">重新开始演示</button></div>
+
+<script>
+// ---------- 演示数据 ----------
+// agent 每道题自己决定交互方式：single 单选 / multi 多选 / number 数字 / text 单行 / long 多行 / rich 富文本 / link 链接 / image 图片 / file 文档 / archive 压缩包
+const KIND_NAME = { single: "单选", multi: "多选", number: "数字", text: "文字", long: "多行文字", rich: "富文本", link: "链接", image: "图片", file: "文档", archive: "压缩包" };
+
+const ROUNDS = [
+  { intro: "先从最基本的开始——你们做什么、卖给谁、希望网站帮你们做成什么。", qs: [
+    { id: "q1", type: "rich", title: "请介绍一下你们公司和主要产品。",
+      why: "我需要先用你的语言理解业务，后面的页面文案和分类都从这里来。可以用列表分点写。", ph: "想到什么写什么，可以用上面的工具加粗、分点、放链接……" },
+    { id: "q2", type: "multi", title: "你们的客户主要是哪几类？（可多选）",
+      why: "不同客户关心的信息不同，决定首页先讲什么。", opts: ["工程商 / 集成商", "终端用户（园区、学校、场馆）", "海外经销商", "政府 / 公共机构", "个人消费者"] },
+    { id: "q3", type: "single", title: "做这个网站，最希望达到的结果是什么？",
+      why: "目标只选一个，页面结构会围绕它来排——别的目标放在次要位置。",
+      opts: [["获取询盘", "客户留下联系方式 / 询价"], ["展示实力", "让客户觉得我们靠谱、专业"], ["在线销售", "客户可以直接下单"], ["内容资料库", "产品资料、文档集中查阅"]] },
+  ]},
+  { intro: "谢谢，我大概懂了你们的业务。下面想了解你们手上有哪些现成的东西。", qs: [
+    { id: "q4", type: "file", title: "有产品目录、画册或报价单吗？请直接上传。",
+      why: "有资料我就不用再问一堆产品问题了，我会自己读。", hint: "PDF / Word / Excel，单个不超过 50MB", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" },
+    { id: "q5", type: "image", title: "有 Logo 和公司实拍照片吗？",
+      why: "决定草稿页的图片位置怎么摆，真图我们后面会替换进去。", hint: "JPG / PNG / SVG，可以一次选多张", accept: "image/*" },
+    { id: "q6", type: "link", title: "你喜欢（或最在意的）同行网站有哪些？",
+      why: "看一眼同行怎么讲，能避免我们做出千篇一律的页面。可以放几个。", ph: "https://" },
+    { id: "q7", type: "text", title: "现在有网站或域名吗？",
+      why: "决定是新做还是改版、域名怎么绑定。", ph: "例如 www.example.com，没有就写“没有”" },
+  ]},
+  { intro: "最后一组，主要是落地细节。", qs: [
+    { id: "q8", type: "single", title: "客户留下询盘之后，谁来跟进？",
+      why: "决定表单里要问哪些信息、通知发给谁。",
+      opts: [["老板自己", ""], ["专门的销售 / 客服", ""], ["还没想好", "我们会给你建议"]] },
+    { id: "q9", type: "number", title: "现在平均每个月大概收到多少条询盘？",
+      why: "决定表单要不要做分流，以及后续跟进的工作量。", unit: "条 / 月", ph: "例如 30" },
+    { id: "q10", type: "multi", title: "网站需要哪些语言？",
+      why: "多语言会影响页面结构和后续成本，提前定下来最省事。", opts: ["中文", "英文", "日文", "西班牙文", "其他"] },
+    { id: "q11", type: "archive", title: "如果现有网站有备份或源码，可以打包上传吗？",
+      why: "我可以直接读里面现成的内容和结构，不用你再一页页复制。", hint: "ZIP / RAR / 7z，单个不超过 200MB", accept: ".zip,.rar,.7z" },
+    { id: "q12", type: "long", title: "还有什么特别的要求或担心的吗？",
+      why: "任何前面没问到的，都在这里说。", ph: "没有可以不填" },
+  ]},
+];
+const KNOW = [
+  [["业务", "做人行通道闸机，面向园区 / 学校 / 地铁站"], ["客户", "以工程商和终端用户为主"], ["目标", "获取询盘（页面围绕“留联系方式”排）"]],
+  [["资料", "已收到产品目录，我会自己读，不再问产品参数"], ["域名", "已有网站，需要确认是改版还是新做"]],
+  [["跟进", "销售跟进，询盘表单会写“谁来联系你”"], ["语言", "中文 + 英文"]],
+];
+
+// ---------- 状态 ----------
+// 答一题存一题：answers 每次变化都写进浏览器（没有“保存草稿”这一步）。
+const KEY = "grillme-mock-v3";
+let state;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const allQuestions = () => ROUNDS.flatMap(r => r.qs);
+const byId = id => allQuestions().find(q => q.id === id);
+const clone = x => JSON.parse(JSON.stringify(x));
+const fresh = () => ({ round: 0, deferredMode: false, phase: "ask", skipped: new Set(), answers: {}, know: [], urls: {} });
+
+function persist() {
+  localStorage.setItem(KEY, JSON.stringify({
+    round: state.round, deferredMode: state.deferredMode, phase: state.phase === "thinking" ? "ask" : state.phase,
+    skipped: [...state.skipped], answers: state.answers, know: state.know,
+  }));
+}
+function restart() { localStorage.removeItem(KEY); state = fresh(); render(); }
+function load() {
+  state = fresh();
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (raw) {
+      Object.assign(state, { round: raw.round, deferredMode: raw.deferredMode, phase: raw.phase, skipped: new Set(raw.skipped), answers: raw.answers, know: raw.know });
+      if (Object.keys(state.answers).length) setTimeout(() => toast("已恢复你上次的回答"), 300);
+    }
+  } catch { /* 坏数据就当没有 */ }
+  render();
+}
+
+// 一个问题现在有没有内容（什么都没动 = 没有；富文本里只有空标签也算没有）
+function hasContent(q) {
+  const a = state.answers[q.id];
+  switch (q.type) {
+    case "multi": case "link": return Array.isArray(a) && a.some(x => String(x).trim());
+    case "file": case "image": case "archive": return Array.isArray(a) && a.length > 0;
+    case "rich": { const d = document.createElement("div"); d.innerHTML = a || ""; return !!d.textContent.trim(); }
+    default: return a !== undefined && String(a).trim() !== "";
+  }
+}
+const isSkipped = q => state.skipped.has(q.id) && !hasContent(q);
+const currentQs = () => state.deferredMode ? allQuestions().filter(q => state.skipped.has(q.id)) : ROUNDS[state.round].qs;
+const pendingCount = () => [...state.skipped].filter(id => !hasContent(byId(id))).length;
+
+// ---------- 渲染 ----------
+function render() {
+  persist();
+  $("#deferredCount").textContent = pendingCount();
+  const app = $("#app");
+  if (state.phase === "thinking") { app.innerHTML = `<div class="center"><div class="thinking"><div class="spin"></div>正在消化你的回答，想下一组问题……</div></div>`; return; }
+  if (state.phase === "done") return renderDone(app);
+
+  const qs = currentQs();
+  const label = state.deferredMode ? "回头补答" : `第 ${state.round + 1} 轮`;
+  const lead = state.deferredMode
+    ? "这些是你之前选了“稍后再答”的，一个都不会丢。现在补上，或者继续留着——我会把没答的标成“待确认”，不会替你编。"
+    : ROUNDS[state.round].intro;
+  const knowHtml = state.know.map(([k, v]) => `<li><span class="k">${esc(k)}：</span>${esc(v)}<span class="wrong" onclick="toast('可以直接告诉我哪里不对，我会改')">不对？</span></li>`).join("");
+  app.innerHTML = `
+  <div class="wrap">
+    <main>
+      <div class="round-head"><h1>${label}</h1><span class="tag">${qs.length} 个问题${state.deferredMode ? "" : " · 我问清楚就停，不设固定轮数"}</span></div>
+      <p class="lead">${esc(lead)}</p>
+      ${qs.map((q, i) => qHtml(q, i)).join("")}
+    </main>
+    <aside>
+      <div class="box"><h3>访谈记录</h3>${historyHtml()}</div>
+      <div class="box"><h3>我现在的理解</h3><ul class="know">${knowHtml}</ul></div>
+      <div class="note">答一题存一题（存在这台设备的浏览器里），关掉页面也不会丢；一个字都没写的题，可以“稍后再答”。</div>
+    </aside>
+  </div>
+  <div class="bar"><div class="bar-in">
+    <div class="status"></div><div class="grow"></div>
+    <button class="primary" id="submit" onclick="submitRound()">${state.deferredMode ? "提交补答" : "提交本轮，继续"}</button>
+  </div></div>`;
+  qs.forEach(bindQ);
+  refreshBar();
+}
+
+// 只记录已经发生的：agent 一轮一轮地问，下一轮问什么、还有几轮，要等这一轮的回答才知道，所以不画“总进度”
+function historyHtml() {
+  const rows = [];
+  for (let r = 0; r <= state.round && r < ROUNDS.length; r++) {
+    const qs = ROUNDS[r].qs;
+    const cur = r === state.round && !state.deferredMode;
+    const sk = qs.filter(isSkipped).length;
+    rows.push(`<div class="hist ${cur ? "cur" : ""}"><span class="hd"></span>第 ${r + 1} 轮<span class="hs">${cur ? "进行中" : `${qs.length} 题${sk ? ` · 待补 ${sk}` : ""}`}</span></div>`);
+  }
+  if (state.deferredMode) rows.push(`<div class="hist cur"><span class="hd"></span>回头补答<span class="hs">进行中</span></div>`);
+  return rows.join("");
+}
+
+function bodyHtml(q) {
+  const a = state.answers[q.id];
+  switch (q.type) {
+    case "long": return `<textarea rows="4" data-in="${q.id}" placeholder="${esc(q.ph || "")}">${esc(a || "")}</textarea>`;
+    case "text": return `<input type="text" data-in="${q.id}" placeholder="${esc(q.ph || "")}" value="${esc(a || "")}">`;
+    case "number": return `<div class="numrow"><input type="number" data-in="${q.id}" placeholder="${esc(q.ph || "")}" value="${esc(a ?? "")}">${q.unit ? `<span>${esc(q.unit)}</span>` : ""}</div>`;
+    case "single": return `<div class="opts">${q.opts.map(o => { const [v, h] = Array.isArray(o) ? o : [o, ""]; return `<button class="opt ${a === v ? "on" : ""}" data-pick="${q.id}" data-v="${esc(v)}">${esc(v)}${h ? `<span class="hint">${esc(h)}</span>` : ""}</button>`; }).join("")}</div>`;
+    case "multi": return `<div class="opts">${q.opts.map(v => `<button class="opt ${(a || []).includes(v) ? "on" : ""}" data-multi="${q.id}" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div>`;
+    case "rich": return `<div class="rich-box"><div class="rich-tools">
+        <button type="button" data-cmd="bold" title="加粗"><b>B</b></button><button type="button" data-cmd="italic" title="斜体"><i>I</i></button>
+        <span class="sep"></span><button type="button" data-cmd="insertUnorderedList" title="项目符号">•</button><button type="button" data-cmd="insertOrderedList" title="编号">1.</button>
+        <span class="sep"></span><button type="button" data-cmd="createLink" title="链接">🔗</button><button type="button" data-cmd="removeFormat" title="清除格式">Tx</button></div>
+      <div class="rich" contenteditable="true" data-rich="${q.id}" data-ph="${esc(q.ph || "")}">${a || ""}</div></div>`;
+    case "link": {
+      const rows = Array.isArray(a) && a.length ? a : [""];
+      return `<div>${rows.map((u, i) => `<div class="linkrow"><input type="url" data-link="${q.id}" data-i="${i}" placeholder="${esc(q.ph || "https://")}" value="${esc(u)}">${u && !/^https?:\/\/\S+\.\S+/.test(u) ? `<span class="bad">不像网址</span>` : ""}</div>`).join("")}</div>
+        <button class="link" data-addlink="${q.id}">+ 再加一个</button>`;
+    }
+    case "image": {
+      const fs = a || [];
+      return `<div class="drop" data-drop="${q.id}">把图片拖到这里，或点击选择<br><small>${esc(q.hint || "")}</small></div><input type="file" hidden multiple accept="${esc(q.accept || "")}" data-file="${q.id}">
+        <div class="thumbs">${fs.map((f, k) => `<div class="thumb">${state.urls[f.name + f.size] ? `<img src="${state.urls[f.name + f.size]}" alt="">` : esc(f.name)}<button title="移除" data-rm="${q.id}" data-k="${k}">×</button></div>`).join("")}</div>`;
+    }
+    default: { // file / archive
+      const fs = a || [];
+      return `<div class="drop" data-drop="${q.id}">把${q.type === "archive" ? "压缩包" : "文件"}拖到这里，或点击选择<br><small>${esc(q.hint || "")}</small></div><input type="file" hidden multiple accept="${esc(q.accept || "")}" data-file="${q.id}">
+        <div class="files">${fs.map((f, k) => `<div class="file"><span class="ico">${esc(f.ext)}</span>${esc(f.name)}<span class="size">${esc(f.sizeText)}</span><button title="移除" data-rm="${q.id}" data-k="${k}">×</button></div>`).join("")}</div>`;
+    }
+  }
+}
+
+// 底部：什么都没写 → “不确定，稍后再答”；写了东西 → 什么都不放（保存是自动的，只在卡片右上角闪一下“已保存”）
+function footHtml(q) {
+  if (isSkipped(q)) return `<div class="skipped-note">已放到“稍后再答”，一个都不会丢——访谈最后我会再带你过一遍。<button class="link" data-unskip="${q.id}">现在就答</button></div>`;
+  if (!hasContent(q)) return `<div class="q-foot"><button class="link" data-skip="${q.id}">不确定，稍后再答</button></div>`;
+  return "";
+}
+
+// 答一题存一题：停手半秒后在卡片右上角浮出“已保存”，一秒半后消失
+const flashTimers = {};
+function markSaved(q) {
+  const el = $("#" + q.id); if (!el) return;
+  const f = $(".flash", el);
+  clearTimeout(flashTimers[q.id]);
+  f.classList.remove("show");
+  if (!hasContent(q)) return;
+  flashTimers[q.id] = setTimeout(() => {
+    f.textContent = "✓ 已保存"; f.classList.add("show");
+    flashTimers[q.id] = setTimeout(() => f.classList.remove("show"), 1500);
+  }, 500);
+}
+
+const qClass = q => (hasContent(q) ? "filled" : isSkipped(q) ? "skipped" : "");
+function qHtml(q, i) {
+  return `<section class="q ${qClass(q)}" id="${q.id}">
+    <div class="q-top"><span class="num">${hasContent(q) ? "✓" : i + 1}</span>
+      <div><div class="q-title">${esc(q.title)}<span class="kind">${KIND_NAME[q.type]}</span></div><div class="q-why">${esc(q.why)}</div></div></div>
+    <div class="q-body">${bodyHtml(q)}</div>
+    <div class="q-foot-wrap">${footHtml(q)}</div>
+    <span class="flash"></span>
+  </section>`;
+}
+
+// 输入时只更新这一题的底部和底栏，不重绘整题（否则光标和富文本选区会丢）
+function refreshQ(q) {
+  const el = $("#" + q.id); if (!el) return;
+  if (hasContent(q)) state.skipped.delete(q.id);
+  el.className = `q ${qClass(q)}`;
+  $(".num", el).textContent = hasContent(q) ? "✓" : String(currentQs().indexOf(q) + 1);
+  $(".q-foot-wrap", el).innerHTML = footHtml(q);
+  bindFoot(q);
+  refreshBar();
+  persist();
+  markSaved(q);
+  $("#deferredCount").textContent = pendingCount();
+}
+function refreshBar() {
+  const qs = currentQs();
+  const filled = qs.filter(hasContent).length, skipped = qs.filter(isSkipped).length;
+  const st = $(".bar .status");
+  if (st) st.innerHTML = `已填 <b>${filled}</b> / ${qs.length}${skipped ? ` · 稍后再答 <b>${skipped}</b>` : ""}`;
+  const b = $("#submit"); if (b) b.disabled = !(state.deferredMode || qs.every(q => hasContent(q) || isSkipped(q)));
+}
+
+// ---------- 事件 ----------
+function bindFoot(q) {
+  const el = $("#" + q.id);
+  el.querySelectorAll("[data-skip]").forEach(b => b.onclick = () => { state.skipped.add(q.id); persist(); toast("已放到“稍后再答”"); render(); });
+  el.querySelectorAll("[data-unskip]").forEach(b => b.onclick = () => { state.skipped.delete(q.id); persist(); render(); });
+}
+function bindQ(q) {
+  const el = $("#" + q.id);
+  bindFoot(q);
+  const set = v => { state.answers[q.id] = v; refreshQ(q); };
+  el.querySelectorAll("[data-in]").forEach(i => i.oninput = () => set(i.value));
+  el.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { // 再点一次已选的 = 取消
+    if (state.answers[q.id] === b.dataset.v) delete state.answers[q.id]; else state.answers[q.id] = b.dataset.v;
+    if (hasContent(q)) state.skipped.delete(q.id);
+    render(); markSaved(q);
+  });
+  el.querySelectorAll("[data-multi]").forEach(b => b.onclick = () => {
+    const cur = new Set(state.answers[q.id] || []); cur.has(b.dataset.v) ? cur.delete(b.dataset.v) : cur.add(b.dataset.v);
+    state.answers[q.id] = [...cur];
+    if (hasContent(q)) state.skipped.delete(q.id);
+    render(); markSaved(q);
+  });
+  el.querySelectorAll("[data-rich]").forEach(r => {
+    r.oninput = () => set(r.innerHTML);
+    el.querySelectorAll("[data-cmd]").forEach(b => b.onmousedown = e => {
+      e.preventDefault(); // 点工具栏不抢走编辑区的选区
+      let v = null;
+      if (b.dataset.cmd === "createLink") { v = prompt("链接地址", "https://"); if (!v) return; }
+      r.focus(); document.execCommand(b.dataset.cmd, false, v); set(r.innerHTML);
+    });
+  });
+  el.querySelectorAll("[data-link]").forEach(i => { // 链接：敲的时候不重绘，离开输入框再重绘（才显示“不像网址”）
+    i.oninput = () => { const a = [...(state.answers[q.id] || [""])]; a[+i.dataset.i] = i.value; state.answers[q.id] = a; refreshQ(q); };
+    i.onblur = () => render();
+  });
+  el.querySelectorAll("[data-addlink]").forEach(b => b.onclick = () => { state.answers[q.id] = [...(state.answers[q.id] || [""]), ""]; render(); });
+  el.querySelectorAll("[data-drop]").forEach(d => {
+    const input = el.querySelector("[data-file]");
+    d.onclick = () => input.click();
+    d.ondragover = e => { e.preventDefault(); d.classList.add("over"); };
+    d.ondragleave = () => d.classList.remove("over");
+    d.ondrop = e => { e.preventDefault(); d.classList.remove("over"); addFiles(q, e.dataTransfer.files); };
+    input.onchange = () => { addFiles(q, input.files); input.value = ""; };
+  });
+  el.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { state.answers[q.id].splice(+b.dataset.k, 1); render(); markSaved(q); });
+}
+const sizeText = n => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+function addFiles(q, list) { // 只记名字和大小，不真的上传
+  const cur = state.answers[q.id] || [];
+  for (const f of list) {
+    cur.push({ name: f.name, size: f.size, sizeText: sizeText(f.size), ext: (f.name.split(".").pop() || "").slice(0, 4).toUpperCase() });
+    if (q.type === "image") state.urls[f.name + f.size] = URL.createObjectURL(f);
+  }
+  state.answers[q.id] = cur; state.skipped.delete(q.id); render(); markSaved(q);
+}
+
+function submitRound() {
+  const qs = currentQs();
+  qs.filter(hasContent).forEach(q => state.skipped.delete(q.id));
+  const wasDeferred = state.deferredMode;
+  if (!wasDeferred) state.know = state.know.concat(KNOW[state.round]);
+  const last = state.round === ROUNDS.length - 1;
+  state.phase = "thinking"; persist(); render(); window.scrollTo(0, 0);
+  setTimeout(() => {
+    if (wasDeferred) { state.deferredMode = false; state.phase = "done"; }
+    else if (!last) { state.round++; state.phase = "ask"; }
+    else if (pendingCount()) { state.phase = "ask"; state.deferredMode = true; }
+    else state.phase = "done";
+    persist(); render(); window.scrollTo(0, 0);
+  }, 1100);
+}
+
+function renderDone(app) {
+  const left = allQuestions().filter(q => !hasContent(q));
+  app.innerHTML = `<div class="center">
+    <h1>访谈完成，谢谢 🎉</h1>
+    <p class="lead">我已经把需要的都搞懂了，接下来我们会整理成一份给 AI 读的项目上下文，然后进入“规划结构”。</p>
+    <div class="summary"><h3>我整理出的理解（你可以在这一页修改）</h3><ul>${state.know.map(([k, v]) => `<li><b>${esc(k)}：</b>${esc(v)}</li>`).join("")}</ul></div>
+    ${left.length ? `<div class="summary"><h3>仍待确认（你没答的，我不会替你编；我们之后会再向你要）</h3><ul>${left.map(q => `<li>${esc(q.title)}</li>`).join("")}</ul></div>` : ""}
+    <p><button class="pill-btn" onclick="restart()">重新演示</button></p>
+  </div>`;
+}
+
+// 稍后再答的抽屉：一个都不会丢
+$("#deferredBtn").addEventListener("click", () => {
+  const list = allQuestions().filter(isSkipped);
+  $("#drawer").innerHTML = `<button class="pill-btn close" onclick="closeDrawer()">关闭</button><h2>稍后再答</h2>
+    <div class="why" style="color:var(--mute)">你放到这里的问题都在，一个都不会丢。访谈最后我会再带你过一遍。</div>
+    ${list.length ? list.map(q => `<div class="row"><div class="t">${esc(q.title)}</div><div class="why">${esc(q.why)}</div></div>`).join("") : `<div class="row">目前没有。</div>`}`;
+  $("#mask").classList.add("open");
+});
+$("#mask").addEventListener("click", e => { if (e.target.id === "mask") closeDrawer(); });
+function closeDrawer() { $("#mask").classList.remove("open"); }
+let tt;
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 1600); }
+
+load();
+</script>
+</body>
+</html>

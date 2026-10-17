@@ -1,0 +1,32 @@
+{
+  "name": "grill-me",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/effect/install-compiler.mjs && node scripts/hooks-install.mjs"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.63",
+    "@cloudflare/think": "0.20.0",
+    "agents": "0.26.0",
+    "ai": "^7.0.128",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-beta.sha-52b0dc0e9",
+    "@cloudflare/workers-types": "5.20260908.1",
+    "@effect/tsgo": "0.45.0",
+    "@effect/vitest": "catalog:",
+    "@types/node": "22.15.17",
+    "@yansircc/effect-scan": "0.1.19",
+    "cf": "1.0.0-beta.12",
+    "typescript": "7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "packageManager": "pnpm@12.4.1"
+}

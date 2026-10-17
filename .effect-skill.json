@@ -1,0 +1,57 @@
+{
+  "shape": ["http-server", "db:d1", "ai"],
+  "executableEdges": [
+    {
+      "path": "src/worker/interviewer.ts",
+      "owner": "访谈者（Think Durable Object）",
+      "reason": "Think calls the agent's tools and hooks, and the Worker calls the object's RPC methods, as Promise-returning methods. `runInterviewEffect` runs one program from interview.ts (an Effect over the object's SQLite and workspace) per call; all interview logic is in those programs and in shared/machine.ts.",
+      "execution": {
+        "lifecycle": "exported-function",
+        "runners": ["Effect.runPromise"],
+        "function": {
+          "export": "runInterviewEffect"
+        }
+      }
+    }
+  ],
+  "nativeDependencyBoundaries": [],
+  "hostTooling": [
+    {
+      "path": "scripts/**",
+      "owner": "Operator tooling",
+      "reason": "Host programs on the operator's machine: the end-to-end player (play.mjs, spends model tokens), local D1 migration, the cf token preflight, hook and compiler installers."
+    },
+    {
+      "path": "src/web/**",
+      "owner": "Interview page (browser)",
+      "reason": "The customer's page: DOM event wiring and fetches against the Worker's /api. It is not Effect code and never runs on the Worker; it only imports the pure shared modules."
+    },
+    {
+      "path": "vite.config.ts",
+      "owner": "Build tooling",
+      "reason": "The vite-plus config runs in the build host; it reads process.env.VITEST only to skip the Cloudflare plugin for plain unit tests."
+    }
+  ],
+  "generatedPaths": [],
+  "allowedAdapters": [
+    {
+      "path": "src/worker/index.ts",
+      "owner": "Grill-me Worker",
+      "reason": "The fetch edge hands /i/* and /admin/* to one Effect web handler per request and copies its response into a native Response; Durable Object calls are wrapped as effects (`rpc`). No business logic lives here beyond routing.",
+      "rules": ["EFF402"]
+    },
+    {
+      "path": "src/worker/interviewer.ts",
+      "owner": "访谈者（Think Durable Object）",
+      "reason": "The framework's Promise contract: tool executes and hooks return the promise of one Effect program; no `async` and no business logic lives in the class.",
+      "rules": ["EFF402"]
+    }
+  ],
+  "aiProviderTransports": [
+    {
+      "path": "src/worker/interviewer.ts",
+      "owner": "访谈者（Think Durable Object）",
+      "reason": "The model is reached through Think's AI SDK contract (getModel returns an AI SDK LanguageModel; DeepSeek via @ai-sdk/openai-compatible), which is the framework's own boundary; there is no Effect AI client in the loop."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Commit-time half of the gate: the staged files only, through the `staged` config in
+# vite.config.ts (format, lint, type-check), fixing what it can and re-staging the fixes.
+#
+# Installed by `vp config --hooks` (which runs from `postinstall`); the dispatcher that calls this
+# file is generated into `.vite-hooks/_/`, which is not committed. Opt out per clone with
+# `git config vp.hooks.disabled true`, or per command with `VP_GIT_HOOKS=0`.
+set -e
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+if [ ! -x node_modules/.bin/vp ]; then
+  echo "pre-commit: dependencies are not installed; skipping the local gate." >&2
+  exit 0
+fi
+exec node_modules/.bin/vp run pre-commit
