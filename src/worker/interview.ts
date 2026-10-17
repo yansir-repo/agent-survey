@@ -12,6 +12,7 @@ import { Clock, Context, Effect } from "effect";
 import type { FileInfo, InterviewView, RoundView } from "../shared/api.ts";
 import { markdownPath } from "../shared/files.ts";
 import {
+  STAGE_ROUNDS,
   initial,
   openedDeferred,
   step,
@@ -19,10 +20,12 @@ import {
   type Event,
   type Machine,
 } from "../shared/machine.ts";
+import { DEFAULT_PROFILE, PROFILES } from "../shared/profiles.ts";
 import { CONTEXT_PATH, promptText } from "../shared/prompt.ts";
 import {
   MAX_NOTE,
   parseAskRound,
+  parseCheckpoint,
   validateAnswer,
   type Question,
   type Value,
@@ -105,11 +108,14 @@ const text = (row: Row, k: string): string => {
 };
 const num = (row: Row, k: string): number => Number(row[k] ?? 0);
 
+const roundKind = (k: string): RoundView["kind"] =>
+  k === "deferred" || k === "checkpoint" ? k : "agent";
+
 const roundRows = q("SELECT * FROM rounds ORDER BY seq");
 const roundOf = (row: Row): RoundView => ({
   id: text(row, "id"),
   seq: num(row, "seq"),
-  kind: text(row, "kind") === "deferred" ? "deferred" : "agent",
+  kind: roundKind(text(row, "kind")),
   intro: text(row, "intro"),
   questions: JSON.parse(text(row, "questions")) as Question[],
 });
@@ -150,8 +156,10 @@ const perform = (fx: MachineEffect, m: Machine, answers?: Submission) =>
       case "prompt": {
         const body =
           fx.why === "nudge"
-            ? promptText("nudge")
+            ? promptText("nudge", { checkpointDue: m.checkpointDue })
             : promptText(fx.why, {
+                // 检查点要告诉 agent 的是“刚完成的那个阶段”：due 时机器还没往前走（stage+1），answers 时机器已经走过了（stage）
+                stage: fx.why === "checkpoint-due" ? m.stage + 1 : m.stage,
                 seq: answers?.seq ?? 0,
                 answers: answersMarkdown(
                   answers?.items ?? [],
@@ -201,6 +209,11 @@ const apply = (e: Event, answers?: Submission) =>
 
 export const askRound = (raw: unknown) =>
   Effect.gen(function* () {
+    if ((yield* loadMachine).checkpointDue)
+      return {
+        ok: false,
+        message: `现在是检查点：先更新 ${CONTEXT_PATH}，再调用 checkpoint，不能 ask_round。`,
+      };
     const used = new Set((yield* allQuestions).map((x) => x.id));
     const parsed = parseAskRound(raw, used);
     if (!parsed.ok)
@@ -218,6 +231,55 @@ export const askRound = (raw: unknown) =>
     );
     yield* kvSet("turn.asked", id);
     return { ok: true, message: `第 ${seq} 轮已发给客户。本回合结束，等客户回答。` };
+  });
+
+/** 一个文本的指纹（长度 + 简单哈希）：检查点要求 CONTEXT.md 和上一个检查点相比真的改过。 */
+const fingerprint = (t: string): string => {
+  let h = 0;
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+  return `${t.length}:${h}`;
+};
+
+/** 检查点：系统要求时，agent 先重写 CONTEXT.md，再把这一阶段听到的要点交给客户逐条确认。 */
+export const checkpoint = (raw: unknown) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
+    const m = yield* loadMachine;
+    if (!m.checkpointDue)
+      return {
+        ok: false,
+        message:
+          "现在还不是检查点（每满一个阶段系统会通知你）。继续 ask_round，或者 finish_interview。",
+      };
+    const ctx = yield* Effect.promise(() => host.readFile(CONTEXT_PATH));
+    if (!ctx || ctx.trim() === "")
+      return { ok: false, message: `先把 ${CONTEXT_PATH} 写好，再做检查点。` };
+    const print = fingerprint(ctx);
+    if (print === (yield* kvGet("ctx.fp")))
+      return {
+        ok: false,
+        message: `${CONTEXT_PATH} 和上一个检查点相比没有变化：先把它重写整理一遍（合并、去重、改正），再调用 checkpoint。`,
+      };
+    const parsed = parseCheckpoint(raw, m.stage);
+    if (!parsed.ok)
+      return { ok: false, message: `检查点没有发出：${parsed.error}。改正后重新调用 checkpoint。` };
+    const seq = (yield* roundRows).length + 1;
+    const id = `c${seq}`;
+    yield* q(
+      "INSERT INTO rounds (id, seq, kind, intro, understanding, questions, status, created_at) VALUES (?, ?, 'checkpoint', ?, '[]', ?, 'open', ?)",
+      id,
+      seq,
+      parsed.intro,
+      JSON.stringify(parsed.questions),
+      yield* Clock.currentTimeMillis,
+    );
+    yield* kvSet("ctx.fp", print);
+    yield* kvSet("turn.asked", id);
+    yield* kvSet("turn.checkpoint", "1");
+    return {
+      ok: true,
+      message: `第 ${m.stage + 1} 阶段的检查点已发给客户。本回合结束，等他确认。`,
+    };
   });
 
 export const finishInterview = (summary: string) =>
@@ -277,7 +339,15 @@ export const turnHasOutcome = Effect.gen(function* () {
   return (yield* kvGet("turn.asked")) !== null || (yield* kvGet("turn.finished")) !== null;
 });
 
-export const beforeTurnBrief = Effect.map(kvGet("brief"), (b) => b ?? "");
+/** 每回合的指令要用的：任务层（创建访谈时存下的快照；老访谈没有就用默认预设）和背景。 */
+export const beforeTurnContext = Effect.gen(function* () {
+  const stored = yield* kvGet("mission");
+  return {
+    mission:
+      stored !== null && stored.trim() !== "" ? stored : (PROFILES[DEFAULT_PROFILE]?.mission ?? ""),
+    brief: (yield* kvGet("brief")) ?? "",
+  };
+});
 
 /** 一个回合结束了：看它提了问、结束了、还是什么都没做，喂给状态机。 */
 export const onTurnEnded = (completed: boolean) =>
@@ -286,8 +356,10 @@ export const onTurnEnded = (completed: boolean) =>
     if (m.phase !== "thinking") return;
     const asked = yield* kvGet("turn.asked");
     const finished = yield* kvGet("turn.finished");
+    const isCheckpoint = (yield* kvGet("turn.checkpoint")) !== null;
     yield* kvDel("turn.asked");
     yield* kvDel("turn.finished");
+    yield* kvDel("turn.checkpoint");
     if (!completed && asked === null && finished === null) {
       yield* kvSet("error", "访谈者这边出了点问题，请稍后重试");
       return;
@@ -295,7 +367,9 @@ export const onTurnEnded = (completed: boolean) =>
     yield* kvDel("error");
     yield* apply(
       asked !== null
-        ? { t: "agentAsked", roundId: asked }
+        ? isCheckpoint
+          ? { t: "agentCheckpointed", roundId: asked }
+          : { t: "agentAsked", roundId: asked }
         : finished !== null
           ? { t: "agentFinished" }
           : { t: "agentSilent" },
@@ -304,12 +378,13 @@ export const onTurnEnded = (completed: boolean) =>
 
 // ---- Worker 调用的程序 ----
 
-export const begin = (brief: string) =>
+export const begin = (brief: string, mission: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
     if ((yield* kvGet("begun")) !== null) return;
     yield* kvSet("begun", "1");
     yield* kvSet("brief", brief);
+    yield* kvSet("mission", mission);
     yield* saveMachine(initial);
     yield* Effect.promise(() => host.send(promptText("begin", { brief }), "begin"));
   });
@@ -345,6 +420,15 @@ export const view = Effect.gen(function* () {
   const note = round ? ((yield* kvGet(`note:${round.id}`)) ?? "") : "";
   const out: InterviewView = {
     note,
+    stage:
+      round && round.kind !== "deferred"
+        ? {
+            number: m.stage + 1,
+            round: round.kind === "checkpoint" ? STAGE_ROUNDS + 1 : m.stageRounds + 1,
+            of: STAGE_ROUNDS,
+            checkpoint: round.kind === "checkpoint",
+          }
+        : null,
     code: host.name,
     phase: m.phase,
     round,
@@ -529,6 +613,7 @@ export const snapshot = Effect.gen(function* () {
   }
   return JSON.stringify({
     brief: yield* kvGet("brief"),
+    mission: yield* kvGet("mission"),
     machine: yield* loadMachine,
     summary: yield* kvGet("summary"),
     context: yield* Effect.promise(() => host.readFile(CONTEXT_PATH)),

@@ -195,9 +195,11 @@ const render = (): void => {
   }
   const round = v.round;
   if (!round) return;
-  const label = round.kind === "deferred" ? "回头补答" : `第 ${round.seq} 轮`;
-  app.innerHTML = `<div class="wrap"><main>
-      <div class="round-head"><h1>${label}</h1><span class="tag">${round.questions.length} 个问题${round.kind === "deferred" ? "" : " · 我问清楚就停，不设固定轮数"}</span></div>
+  const cp = round.kind === "checkpoint";
+  const label = roundLabel(round.kind, round.seq, v.stage);
+  app.innerHTML = `<div class="wrap"><main${cp ? ' class="cp"' : ""}>
+      <div class="round-head"><h1>${label}</h1><span class="tag">${cp ? "一眼看过去，对的点“对”，不对的点最后那个自己写" : `${round.questions.length} 个问题${round.kind === "deferred" ? "" : " · 我问清楚就停，不设固定轮数"}`}</span></div>
+      ${stageHtml(v)}
       <p class="lead">${esc(round.intro)}</p>
       ${round.questions.map((q, i) => qHtml(q, i)).join("")}
       <details class="note-more"${noteText ? " open" : ""}><summary>还有想补充的？</summary>
@@ -212,14 +214,54 @@ const render = (): void => {
   refreshBar();
 };
 
+const roundLabel = (
+  kind: "agent" | "deferred" | "checkpoint",
+  seq: number,
+  stage: InterviewView["stage"],
+): string =>
+  kind === "deferred"
+    ? "回头补答"
+    : kind === "checkpoint"
+      ? `第 ${stage?.number ?? ""} 阶段小结`
+      : `第 ${seq} 轮`;
+
+/**
+ * 阶段倒计时：系统数的，所以诚实——它只说“这个阶段还剩几轮”，不声称总共多少轮。
+ * 淡淡的一行：十个点，走到哪个点亮到哪个；检查点那一轮是“这一阶段做完了”。
+ */
+const stageHtml = (v: InterviewView): string => {
+  const s = v.stage;
+  if (!s) return "";
+  if (s.checkpoint)
+    return `<div class="stage done">✓ 第 ${s.number} 阶段完成——${s.of} 轮问完了。看一眼我听到的，对不对？</div>`;
+  const dots = Array.from({ length: s.of }, (_, i) => (i < s.round ? "●" : "○")).join("");
+  const left = s.of - s.round;
+  return `<div class="stage">第 ${s.number} 阶段 <span class="dots">${dots}</span> ${left === 0 ? "这是本阶段最后一轮，答完我给你一份小结" : `还剩 ${left} 轮，之后我给你一份小结`}</div>`;
+};
+
+/** 访谈记录：一两百轮时只列最近几轮，更早的折成一行（按阶段数）。 */
+const HISTORY_SHOWN = 6;
 const historyHtml = (v: InterviewView): string => {
-  const rows = v.history.map(
-    (h) =>
-      `<div class="hist"><span class="hd"></span>${h.kind === "deferred" ? "回头补答" : `第 ${h.seq} 轮`}<span class="hs">${h.questions} 题${h.skipped ? ` · 待补 ${h.skipped}` : ""}</span></div>`,
-  );
+  const row = (
+    kind: "agent" | "deferred" | "checkpoint",
+    seq: number,
+    stage: InterviewView["stage"],
+  ) => (kind === "checkpoint" ? `阶段小结` : roundLabel(kind, seq, stage));
+  const older = v.history.slice(0, Math.max(0, v.history.length - HISTORY_SHOWN));
+  const rows: string[] = [];
+  if (older.length) {
+    const stages = older.filter((h) => h.kind === "checkpoint").length;
+    rows.push(
+      `<div class="hist older">更早的 ${older.length} 轮${stages ? `（含 ${stages} 次阶段小结）` : ""}</div>`,
+    );
+  }
+  for (const h of v.history.slice(-HISTORY_SHOWN))
+    rows.push(
+      `<div class="hist"><span class="hd"></span>${row(h.kind, h.seq, null)}<span class="hs">${h.questions} 题${h.skipped ? ` · 待补 ${h.skipped}` : ""}</span></div>`,
+    );
   if (v.round)
     rows.push(
-      `<div class="hist cur"><span class="hd"></span>${v.round.kind === "deferred" ? "回头补答" : `第 ${v.round.seq} 轮`}<span class="hs">进行中</span></div>`,
+      `<div class="hist cur"><span class="hd"></span>${row(v.round.kind, v.round.seq, v.stage)}<span class="hs">进行中</span></div>`,
     );
   return rows.join("");
 };
@@ -251,7 +293,7 @@ const bodyHtml = (q: Question): string => {
         )
         .join(
           "",
-        )}<button class="opt other ${open ? "on" : ""}" data-other="${q.id}">${q.kind === "single" ? "其他（自己写）" : "补充一个选项"}</button></div>${
+        )}<button class="opt other ${open ? "on" : ""}" data-other="${q.id}">${q.otherLabel ?? (q.kind === "single" ? "其他（自己写）" : "补充一个选项")}</button></div>${
         open
           ? `<input type="text" class="other-in" data-otherin="${q.id}" maxlength="200" placeholder="写下你的答案" value="${esc(mine)}">`
           : ""

@@ -719,3 +719,35 @@ ul.know {
   color: var(--mute);
   border-style: dashed;
 }
+
+/* 阶段倒计时：淡淡一行，让人知道“这一阶段快结束了” */
+.stage {
+  color: var(--mute);
+  font-size: 13px;
+  margin: 2px 0 10px;
+}
+.stage .dots {
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin: 0 4px;
+}
+.stage.done {
+  color: var(--ok);
+  font-size: 14px;
+}
+.hist.older {
+  color: var(--mute);
+  font-size: 13px;
+  padding: 2px 0;
+}
+/* 检查点：每条的 why 都一样，不重复显示 */
+.cp .q-why {
+  display: none;
+}
+.cp .q {
+  padding: 12px 16px;
+  margin-bottom: 8px;
+}
+.cp .q-body {
+  margin-top: 8px;
+}

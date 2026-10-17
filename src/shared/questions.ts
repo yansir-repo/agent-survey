@@ -29,8 +29,20 @@ const base = {
   optional: Schema.optionalKey(Schema.Boolean),
 };
 
-const Single = Schema.Struct({ kind: Schema.Literal("single"), ...base, options: Options });
-const Multi = Schema.Struct({ kind: Schema.Literal("multi"), ...base, options: Options });
+/** otherLabel：“其他（自己写）”那个选项换成别的字（检查点里是“不对，应该是…”）。 */
+const otherLabel = Schema.optionalKey(Short(40));
+const Single = Schema.Struct({
+  kind: Schema.Literal("single"),
+  ...base,
+  options: Options,
+  otherLabel,
+});
+const Multi = Schema.Struct({
+  kind: Schema.Literal("multi"),
+  ...base,
+  options: Options,
+  otherLabel,
+});
 const Num = Schema.Struct({
   kind: Schema.Literal("number"),
   ...base,
@@ -137,6 +149,50 @@ export const parseAskRound = (
     seen.add(q.id);
   }
   return { ok: true, round: { ...r.success, questions } };
+};
+
+// ---- 检查点 ----
+
+/**
+ * 检查点：每满一个阶段，agent 把“我这一阶段听到的要点”交给客户逐条确认。要点是它的工具入参，
+ * 题目由系统生成（agent 不能在检查点里夹带别的题）：每条一道选填的单选——对 / 不确定 / 不对，应该是…（客户自己写）。
+ */
+export const CheckpointInput = Schema.Struct({
+  intro: Short(400),
+  items: Schema.Array(Schema.Struct({ topic: Short(40), claim: Short(250) })).check(
+    Schema.isMinLength(3),
+    Schema.isMaxLength(14),
+  ),
+});
+export type CheckpointInput = typeof CheckpointInput.Type;
+
+const decodeCheckpoint = Schema.decodeUnknownResult(CheckpointInput, { onExcessProperty: "error" });
+
+export const parseCheckpoint = (
+  input: unknown,
+  stage: number,
+): { ok: true; intro: string; questions: Question[] } | { ok: false; error: string } => {
+  const r = decodeCheckpoint(input);
+  if (r._tag !== "Success")
+    return {
+      ok: false,
+      error: String(r.failure)
+        .replace(/^SchemaError\(/, "")
+        .slice(0, 900),
+    };
+  return {
+    ok: true,
+    intro: r.success.intro,
+    questions: r.success.items.map((it, i): Question => ({
+      kind: "single",
+      id: `cp${stage + 1}-${i + 1}`,
+      title: `${it.topic}：${it.claim}`,
+      why: "我这一阶段听到的是这样——对不对？",
+      optional: true,
+      otherLabel: "不对，应该是…",
+      options: [{ label: "对" }, { label: "不确定" }],
+    })),
+  };
 };
 
 // ---- 答案 ----

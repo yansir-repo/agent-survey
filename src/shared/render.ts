@@ -15,7 +15,10 @@ const plainOption = (v: string): string =>
 export const valueMarkdown = (q: Question, v: Value, files: ReadonlyArray<FileInfo>): string => {
   switch (q.kind) {
     case "single":
-      return plainOption(String(v));
+      // 检查点里“其他”那个选项是客户的纠正（otherLabel 只有检查点用）
+      return q.otherLabel !== undefined && isOther(String(v))
+        ? `客户纠正（他写的）：${otherText(String(v))}`
+        : plainOption(String(v));
     case "text":
     case "long":
       return String(v);

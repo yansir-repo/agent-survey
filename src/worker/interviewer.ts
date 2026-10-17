@@ -18,13 +18,14 @@ import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } 
 import { Effect, Layer, Schema } from "effect";
 import type { InterviewView } from "../shared/api.ts";
 import { CONTEXT_PATH, systemPrompt } from "../shared/prompt.ts";
-import { AskRound } from "../shared/questions.ts";
+import { AskRound, CheckpointInput } from "../shared/questions.ts";
 import {
   Host,
   Store,
   askRound,
-  beforeTurnBrief,
+  beforeTurnContext,
   begin,
+  checkpoint,
   ensureSchema,
   fetchPage,
   finishInterview,
@@ -140,7 +141,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
     return this.model();
   }
   override getSystemPrompt(): string {
-    return systemPrompt("");
+    return systemPrompt("", "");
   }
 
   /** 本回合有没有结果：agent 一提问或一结束，本回合就停。同步读（Think 的 stopWhen 是同步的）。 */
@@ -154,8 +155,8 @@ export class Interviewer extends Think<Cloudflare.Env> {
 
   /** 每回合：带上运营写的背景。 */
   override beforeTurn(): Promise<TurnConfig> {
-    return this.run(beforeTurnBrief).then((brief) => ({
-      instructions: systemPrompt(brief),
+    return this.run(beforeTurnContext).then(({ mission, brief }) => ({
+      instructions: systemPrompt(mission, brief),
       stopWhen: () => this.hasOutcome(),
     }));
   }
@@ -167,6 +168,11 @@ export class Interviewer extends Think<Cloudflare.Env> {
           "向客户发出一轮问题（1–5 题）。调用成功后本回合结束，等客户回答。不要和别的工具一起调用。",
         inputSchema: jsonSchema<unknown>(jsonOf(AskRound)),
         execute: (raw) => this.run(askRound(raw)),
+      }),
+      checkpoint: tool({
+        description: `阶段检查点（系统通知你时才能调用）：先重写整理 ${CONTEXT_PATH}，再把这一阶段你听到的要点（6–12 条，每条一句客户能一眼判断对不对的话）交给客户逐条确认。成功后本回合结束。`,
+        inputSchema: jsonSchema<unknown>(jsonOf(CheckpointInput)),
+        execute: (raw) => this.run(checkpoint(raw)),
       }),
       finish_interview: tool({
         description: `结束访谈。前提：${CONTEXT_PATH} 已经写好。系统会在这之后替你补问客户选了“稍后再答”的题。`,
@@ -187,8 +193,8 @@ export class Interviewer extends Think<Cloudflare.Env> {
 
   // ---- Worker 调用的方法（RPC）----
 
-  begin(brief: string): Promise<void> {
-    return this.run(begin(brief));
+  begin(brief: string, mission: string): Promise<void> {
+    return this.run(begin(brief, mission));
   }
   view(): Promise<InterviewView> {
     return this.run(view);

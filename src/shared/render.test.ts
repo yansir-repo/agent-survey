@@ -41,6 +41,14 @@ describe("what the agent reads", () => {
     expect(answersMarkdown(items, [])).not.toContain("额外补充");
   });
 
+  it("in a checkpoint, a written answer is the customer's correction (so the agent knows to override its own claim)", () => {
+    const cp = q("single", { options: [], otherLabel: "不对，应该是…" });
+    expect(valueMarkdown(cp, "其他：其实主要是中东", [])).toBe(
+      "客户纠正（他写的）：其实主要是中东",
+    );
+    expect(valueMarkdown(cp, "对", [])).toBe("对");
+  });
+
   it("rich text arrives as markdown, not HTML", () => {
     expect(valueMarkdown(q("rich"), "<b>a</b><ul><li>x</li></ul>", [])).toBe("**a**\n- x");
   });

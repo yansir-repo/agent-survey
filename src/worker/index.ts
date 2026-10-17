@@ -19,6 +19,7 @@ import { Cause, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
+import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
 import { ingest } from "./upload.ts";
 import {
   InterviewExists,
@@ -158,10 +159,19 @@ const adminRoute = (db: D1Like) =>
 
       if (path === "/admin/interviews" && method === "POST") {
         const body = asRecord(yield* readJson(request));
-        const made = yield* create(str(body["code"]), str(body["brief"])).pipe(
-          provide,
-          Effect.result,
-        );
+        // 任务层：选一个预设（默认 DEFAULT_PROFILE）、整段覆盖（mission）、或在预设后追加（append）；解析后的文本存进访谈（快照）
+        const resolved = resolveMission({
+          profile: str(body["profile"]),
+          mission: str(body["mission"]),
+          append: str(body["append"]),
+        });
+        if (!resolved.ok) return json({ ok: false, error: resolved.error }, 422);
+        const made = yield* create(
+          str(body["code"]),
+          str(body["brief"]),
+          resolved.profile,
+          resolved.mission,
+        ).pipe(provide, Effect.result);
         if (made._tag === "Failure") {
           const e = made.failure;
           return e instanceof InterviewExists
@@ -171,12 +181,26 @@ const adminRoute = (db: D1Like) =>
               : yield* Effect.die(e);
         }
         const i = made.success;
-        yield* rpc(() => stubOf(i.code).begin(i.brief));
+        yield* rpc(() => stubOf(i.code).begin(i.brief, i.mission));
         return json(
-          { ok: true, code: i.code, url: `${origin()}${interviewPath(i.code, i.key)}` },
+          {
+            ok: true,
+            code: i.code,
+            profile: i.profile,
+            url: `${origin()}${interviewPath(i.code, i.key)}`,
+          },
           201,
         );
       }
+      if (path === "/admin/profiles" && method === "GET")
+        return json({
+          default: DEFAULT_PROFILE,
+          profiles: Object.entries(PROFILES).map(([name, p]) => ({
+            name,
+            title: p.title,
+            chars: p.mission.length,
+          })),
+        });
       if (path === "/admin/interviews" && method === "GET") {
         const all = yield* list.pipe(provide);
         const rows = yield* Effect.forEach(all, (i) =>
