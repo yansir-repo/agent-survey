@@ -12,6 +12,7 @@ import type { ClefChoice, ClefRequest } from "../worker/clef.ts";
 export const HISTORY = 30;
 export const MISSION_CHARS = 700;
 
+/** why 不进 clef 的请求：它是出题者自己的辩护，实测会把范围判断带反（有 why：范围外 0.15 < 范围内 0.26；去掉：0.78 > 0.44）。 */
 export type Draft = { readonly title: string; readonly why: string };
 export type Verdict = {
   /** P(这道题和做网站无关)；clef 没给出可读答案就是 null。 */
@@ -28,7 +29,7 @@ export const gateRequest = (
   state: {
     任务: mission.replace(/\s+/g, " ").slice(0, MISSION_CHARS),
     已经问过的题: history.slice(-HISTORY),
-    草拟的题: drafts.map((d, i) => ({ 编号: `q${i + 1}`, 题: d.title, 为什么问: d.why })),
+    草拟的题: drafts.map((d, i) => ({ 编号: `q${i + 1}`, 题: d.title })),
   },
   questions: Object.fromEntries(
     drafts.flatMap((_, i) => [

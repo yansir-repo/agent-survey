@@ -40,7 +40,7 @@ const probe = async (history, qs) => {
     body: JSON.stringify({
       mission: arg("mission") ? readFileSync(arg("mission"), "utf8") : undefined,
       history,
-      questions: qs.map((q) => ({ title: q.title, why: q.why })),
+      questions: qs.map((q) => ({ title: q.title, why: process.env.NOWHY ? "" : q.why })),
     }),
   });
   const data = await res.json();
