@@ -94,6 +94,12 @@ const clientRoute = (db: D1Like) =>
         );
         return json(r, r.ok ? 200 : 422);
       }
+      const note = /^\/api\/rounds\/([a-z0-9]{1,12})\/note$/.exec(rest);
+      if (note && method === "PUT") {
+        const body = asRecord(yield* readJson(request));
+        const r = yield* rpc(() => stub.saveNote(note[1]!, str(body["text"])));
+        return json(r, r.ok ? 200 : 422);
+      }
       const submit = /^\/api\/rounds\/([a-z0-9]{1,12})\/submit$/.exec(rest);
       if (submit && method === "POST") {
         const r = yield* rpc(() => stub.submit(submit[1]!));

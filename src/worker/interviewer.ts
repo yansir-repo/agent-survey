@@ -34,6 +34,7 @@ import {
   removeFile,
   resume,
   saveAnswer,
+  saveNote,
   snapshot,
   submit,
   takenPaths,
@@ -194,6 +195,9 @@ export class Interviewer extends Think<Cloudflare.Env> {
   }
   saveAnswer(qid: string, value: unknown, skip: boolean): Promise<Result> {
     return this.run(saveAnswer(qid, value, skip));
+  }
+  saveNote(roundId: string, text: string): Promise<Result> {
+    return this.run(saveNote(roundId, text));
   }
   submit(roundId: string): Promise<Result> {
     return this.run(submit(roundId));

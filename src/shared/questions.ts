@@ -22,6 +22,11 @@ const base = {
   title: Short(300),
   /** 为什么问：一句话说明这题的用途（客户愿意回答的前提）。 */
   why: Short(300),
+  /**
+   * 选填：客户可以不写，也不用“稍后再答”——空着就是空着，不会被补问。要写“可留空”就用这个，别写进题目里。
+   * （“稍后再答”是另一回事：那是客户想答但现在答不了，系统会补问。）
+   */
+  optional: Schema.optionalKey(Schema.Boolean),
 };
 
 const Single = Schema.Struct({ kind: Schema.Literal("single"), ...base, options: Options });
@@ -78,6 +83,8 @@ export const QUESTION_KINDS = [
 ] as const satisfies ReadonlyArray<QuestionKind>;
 
 export const MAX_QUESTIONS_PER_ROUND = 5;
+/** 每一轮底部的自由补充（系统自带，不是 agent 的题）。 */
+export const MAX_NOTE = 2000;
 
 /** agent 一轮问什么：1–5 题，加一句开场白，以及“我现在的理解”（让客户纠错，不是进度）。 */
 export const AskRound = Schema.Struct({

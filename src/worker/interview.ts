@@ -20,7 +20,13 @@ import {
   type Machine,
 } from "../shared/machine.ts";
 import { CONTEXT_PATH, promptText } from "../shared/prompt.ts";
-import { parseAskRound, validateAnswer, type Question, type Value } from "../shared/questions.ts";
+import {
+  MAX_NOTE,
+  parseAskRound,
+  validateAnswer,
+  type Question,
+  type Value,
+} from "../shared/questions.ts";
 import { answersMarkdown, type Answered } from "../shared/render.ts";
 import { checkPublicUrl } from "../shared/url-guard.ts";
 import { htmlToMarkdown } from "./convert.ts";
@@ -131,7 +137,11 @@ const openRound = (m: Machine) =>
 
 // ---- 状态机的 effect ----
 
-type Submission = { readonly items: ReadonlyArray<Answered>; readonly seq: number };
+type Submission = {
+  readonly items: ReadonlyArray<Answered>;
+  readonly seq: number;
+  readonly note: string;
+};
 
 const perform = (fx: MachineEffect, m: Machine, answers?: Submission) =>
   Effect.gen(function* () {
@@ -143,7 +153,11 @@ const perform = (fx: MachineEffect, m: Machine, answers?: Submission) =>
             ? promptText("nudge")
             : promptText(fx.why, {
                 seq: answers?.seq ?? 0,
-                answers: answersMarkdown(answers?.items ?? [], yield* fileInfos),
+                answers: answersMarkdown(
+                  answers?.items ?? [],
+                  yield* fileInfos,
+                  answers?.note ?? "",
+                ),
                 deferredCount: m.deferred.length,
               });
         yield* Effect.promise(() =>
@@ -328,7 +342,9 @@ export const view = Effect.gen(function* () {
     history.push({ seq: rv.seq, kind: rv.kind, questions: rv.questions.length, skipped: sk });
   }
   const error = yield* kvGet("error");
+  const note = round ? ((yield* kvGet(`note:${round.id}`)) ?? "") : "";
   const out: InterviewView = {
+    note,
     code: host.name,
     phase: m.phase,
     round,
@@ -403,6 +419,7 @@ export const submit = (roundId: string) =>
         items.push({ question, value: JSON.parse(a["value"]) as Value });
       else if (a?.["skipped"] === 1 || round.kind === "deferred")
         items.push({ question, value: null });
+      else if (question.optional === true) items.push({ question, value: null, blank: true });
       else missing.push(question.title);
     }
     if (missing.length) return refuse(`还有题没答：${missing.join("；")}`);
@@ -413,10 +430,24 @@ export const submit = (roundId: string) =>
         roundId,
         kind: round.kind,
         answered: items.filter((i) => i.value !== null).map((i) => i.question.id),
-        skipped: items.filter((i) => i.value === null).map((i) => i.question.id),
+        skipped: items
+          .filter((i) => i.value === null && i.blank !== true)
+          .map((i) => i.question.id),
       },
-      { items, seq: round.seq },
+      { items, seq: round.seq, note: (yield* kvGet(`note:${roundId}`)) ?? "" },
     );
+    return OK;
+  });
+
+/** 这一轮底部“还有想补充的”：自动保存，空 = 清掉。只在这一轮开着的时候能写。 */
+export const saveNote = (roundId: string, raw: string) =>
+  Effect.gen(function* () {
+    const m = yield* loadMachine;
+    if (m.phase !== "asking" || m.open !== roundId) return refuse("现在不是答题的时候");
+    const t = raw.trim();
+    if (t.length > MAX_NOTE) return refuse(`最多 ${MAX_NOTE} 个字`);
+    if (t === "") yield* kvDel(`note:${roundId}`);
+    else yield* kvSet(`note:${roundId}`, t);
     return OK;
   });
 

@@ -44,6 +44,8 @@ export type InterviewView = {
     readonly title: string;
     readonly why: string;
   }>;
+  /** 这一轮底部“还有想补充的”里客户写的字（自动保存的）。 */
+  readonly note: string;
   /** agent 那边出错了（回合中断）：客户可以点“重试”。 */
   readonly error?: string;
   /** 访谈结束后仍没答的题。 */

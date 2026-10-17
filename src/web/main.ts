@@ -76,6 +76,16 @@ const isOtherOpen = (q: Question): boolean => {
   );
 };
 
+/** 这一轮底部“还有想补充的”里写的字。 */
+let noteText = "";
+let noteTimer: number | undefined;
+const saveNote = (): void => {
+  window.clearTimeout(noteTimer);
+  noteTimer = window.setTimeout(() => {
+    if (roundId) void request("PUT", `/rounds/${roundId}/note`, { text: noteText });
+  }, 600);
+};
+
 const questions = (): ReadonlyArray<Question> => view?.round?.questions ?? [];
 const hasContent = (q: Question): boolean => {
   const v = values[q.id];
@@ -101,6 +111,7 @@ const adopt = (v: InterviewView): void => {
     roundId = v.round?.id ?? null;
     values = { ...v.answers } as Record<string, Value>;
     skipped = new Set(v.skipped);
+    noteText = v.note;
   }
 };
 
@@ -189,6 +200,8 @@ const render = (): void => {
       <div class="round-head"><h1>${label}</h1><span class="tag">${round.questions.length} 个问题${round.kind === "deferred" ? "" : " · 我问清楚就停，不设固定轮数"}</span></div>
       <p class="lead">${esc(round.intro)}</p>
       ${round.questions.map((q, i) => qHtml(q, i)).join("")}
+      <details class="note-more"${noteText ? " open" : ""}><summary>还有想补充的？</summary>
+        <textarea rows="3" data-note maxlength="2000" placeholder="这一轮还有什么想让我们知道的，都可以写在这里（选填）">${esc(noteText)}</textarea></details>
     </main><aside>
       <div class="box"><h3>访谈记录</h3>${historyHtml(v)}</div>
       <div class="box"><h3>我现在的理解</h3><ul class="know">${v.understanding.map((u) => `<li><span class="k">${esc(u.topic)}：</span>${esc(u.text)}<span class="wrong" data-act="wrong">不对？</span></li>`).join("")}</ul></div>
@@ -273,18 +286,20 @@ const sizeText = (n: number): string =>
   n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 
 const footHtml = (q: Question): string =>
-  isSkipped(q)
-    ? `<div class="skipped-note">已放到“稍后再答”，一个都不会丢——访谈最后我们会再带你过一遍。<button class="link" data-unskip="${q.id}">现在就答</button></div>`
-    : hasContent(q)
-      ? ""
-      : `<div class="q-foot"><button class="link" data-skip="${q.id}">不确定，稍后再答</button></div>`;
+  q.optional === true && !hasContent(q)
+    ? "" // 选填：空着就是空着，不用“稍后再答”
+    : isSkipped(q)
+      ? `<div class="skipped-note">已放到“稍后再答”，一个都不会丢——访谈最后我们会再带你过一遍。<button class="link" data-unskip="${q.id}">现在就答</button></div>`
+      : hasContent(q)
+        ? ""
+        : `<div class="q-foot"><button class="link" data-skip="${q.id}">不确定，稍后再答</button></div>`;
 
 const qClass = (q: Question): string => (hasContent(q) ? "filled" : isSkipped(q) ? "skipped" : "");
 
 const qHtml = (q: Question, i: number): string =>
   `<section class="q ${qClass(q)}" id="${q.id}">
     <div class="q-top"><span class="num">${hasContent(q) ? "✓" : i + 1}</span>
-      <div><div class="q-title">${esc(q.title)}<span class="kind">${KIND_NAME[q.kind]}</span></div><div class="q-why">${esc(q.why)}</div></div></div>
+      <div><div class="q-title">${esc(q.title)}<span class="kind">${KIND_NAME[q.kind]}</span>${q.optional === true ? `<span class="kind opt-tag">选填</span>` : ""}</div><div class="q-why">${esc(q.why)}</div></div></div>
     <div class="q-body">${bodyHtml(q)}</div>
     <div class="err">${esc(errors[q.id] ?? "")}</div>
     <div class="q-foot-wrap">${footHtml(q)}</div><span class="flash"></span></section>`;
@@ -313,7 +328,10 @@ const refreshBar = (): void => {
     b.disabled =
       submitting ||
       uploading.size > 0 ||
-      !(view?.round?.kind === "deferred" || qs.every((q) => hasContent(q) || isSkipped(q)));
+      !(
+        view?.round?.kind === "deferred" ||
+        qs.every((q) => q.optional === true || hasContent(q) || isSkipped(q))
+      );
 };
 
 // ---- 事件（委托）----
@@ -408,6 +426,11 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("input", (e) => {
   const t = e.target as HTMLInputElement & HTMLElement;
+  if (t.dataset["note"] !== undefined) {
+    noteText = t.value;
+    saveNote();
+    return;
+  }
   const otherQ = t.dataset["otherin"] ? find(t.dataset["otherin"]) : undefined;
   if (otherQ) {
     const text = t.value.trim();
@@ -561,6 +584,8 @@ const submit = async (): Promise<void> => {
   const round = view?.round;
   if (!round || submitting) return;
   // 先把还在等防抖的保存冲掉，保证服务端拿到的就是屏幕上的
+  window.clearTimeout(noteTimer);
+  await request("PUT", `/rounds/${round.id}/note`, { text: noteText });
   for (const q of round.questions) {
     window.clearTimeout(saveTimers[q.id]);
     const v = hasContent(q) ? (values[q.id] ?? null) : null;

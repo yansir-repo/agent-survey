@@ -22,6 +22,25 @@ describe("what the agent reads", () => {
     );
   });
 
+  it("an optional question left blank says so (not 'later': it will not be asked again)", () => {
+    const md = answersMarkdown(
+      [{ question: q("long", { optional: true }), value: null, blank: true }],
+      [],
+    );
+    expect(md).toContain("选填");
+    expect(md).toContain("不用再问");
+    expect(md).not.toContain("稍后再答");
+  });
+
+  it("the free note at the bottom of a round is passed on as the customer's own words, only when there is one", () => {
+    const items = [{ question: q("text"), value: "x" }];
+    expect(answersMarkdown(items, [], "  顺便说一句，我们下个月参展  ")).toContain(
+      "顺便说一句，我们下个月参展",
+    );
+    expect(answersMarkdown(items, [], "  ")).not.toContain("额外补充");
+    expect(answersMarkdown(items, [])).not.toContain("额外补充");
+  });
+
   it("rich text arrives as markdown, not HTML", () => {
     expect(valueMarkdown(q("rich"), "<b>a</b><ul><li>x</li></ul>", [])).toBe("**a**\n- x");
   });

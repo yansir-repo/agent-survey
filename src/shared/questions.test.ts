@@ -75,6 +75,20 @@ describe("parseAskRound", () => {
     ).toBe(true);
   });
 
+  it("a question can be marked optional (blank is fine), and nothing else about it changes", () => {
+    const r = parseAskRound(
+      ok([{ id: "a", kind: "long", title: "T", why: "W", optional: true }]),
+      new Set(),
+    );
+    expect(r.ok).toBe(true);
+    expect(
+      parseAskRound(
+        ok([{ id: "a", kind: "long", title: "T", why: "W", optional: "yes" }]),
+        new Set(),
+      ).ok,
+    ).toBe(false);
+  });
+
   it("every question must say why it is asked", () => {
     expect(parseAskRound(ok([{ id: "a", kind: "text", title: "T" }]), new Set()).ok).toBe(false);
   });

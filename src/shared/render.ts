@@ -41,21 +41,33 @@ export const valueMarkdown = (q: Question, v: Value, files: ReadonlyArray<FileIn
   }
 };
 
-export type Answered = { readonly question: Question; readonly value: Value | null };
+/** value 为 null：客户选了稍后再答；blank：选填题客户没写（空着就是空着，不会补问）。 */
+export type Answered = {
+  readonly question: Question;
+  readonly value: Value | null;
+  readonly blank?: boolean;
+};
 
 /** 一轮的回答。value 为 null = 客户选了稍后再答。 */
 export const answersMarkdown = (
   items: ReadonlyArray<Answered>,
   files: ReadonlyArray<FileInfo>,
-): string =>
-  items
-    .map(({ question, value }) =>
+  note = "",
+): string => {
+  const body = items
+    .map(({ question, value, blank }) =>
       [
         `### ${question.title}`,
         `（题目 id：${question.id}，方式：${question.kind}）`,
-        value === null
-          ? "客户选择稍后再答（系统会在最后补问，你不用重复问）。"
-          : valueMarkdown(question, value, files),
+        blank
+          ? "客户没有填写（这是选填题，空着就是空着，不用再问）。"
+          : value === null
+            ? "客户选择稍后再答（系统会在最后补问，你不用重复问）。"
+            : valueMarkdown(question, value, files),
       ].join("\n"),
     )
     .join("\n\n");
+  return note.trim() === ""
+    ? body
+    : `${body}\n\n### 客户在这一轮底部额外补充的话（自由输入，不是你问的）\n${note.trim()}`;
+};

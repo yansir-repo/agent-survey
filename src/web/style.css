@@ -691,3 +691,31 @@ ul.know {
 .other-in {
   margin-top: 10px;
 }
+
+/* 每一轮底部的自由补充：不抢眼，只让人知道有这个功能 */
+.note-more {
+  margin: 4px 0 0 4px;
+  color: var(--mute);
+  font-size: 13px;
+}
+.note-more summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-block;
+  padding: 2px 0;
+}
+.note-more summary::before {
+  content: "＋ ";
+}
+.note-more[open] summary::before {
+  content: "－ ";
+}
+.note-more textarea {
+  margin-top: 6px;
+  font-size: 14px;
+  background: transparent;
+}
+.opt-tag {
+  color: var(--mute);
+  border-style: dashed;
+}
