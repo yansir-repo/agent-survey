@@ -263,9 +263,20 @@ const buildHandler = (db: D1Like) =>
       ),
   });
 
+/** 首页：没有入口、不列任何访谈——访谈只能从运营发的专属链接进。 */
+const HOME = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>需求访谈</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f4ef;color:#23201b;font:16px/1.7 -apple-system,"PingFang SC",sans-serif;text-align:center;padding:24px}h1{font-size:24px;margin:0 0 8px}p{color:#7a7468;margin:0}</style></head>
+<body><main><h1>需求访谈</h1><p>请从我们发给你的专属链接进入。<br>没有收到链接？联系你的对接人。</p></main></body></html>`;
+
 export default {
   fetch(request) {
     const { pathname } = new URL(request.url);
+    if (pathname === "/" && request.method === "GET")
+      return Promise.resolve(
+        new Response(HOME, {
+          headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex" },
+        }),
+      );
     if (!pathname.startsWith("/i/") && !pathname.startsWith("/admin/"))
       return Promise.resolve(new Response("Not found", { status: 404 }));
     const web = buildHandler(env.DB);
