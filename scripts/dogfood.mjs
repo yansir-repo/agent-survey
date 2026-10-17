@@ -48,7 +48,14 @@ const admin = (m, p, b) =>
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     ...(b ? { body: JSON.stringify(b) } : {}),
   });
-const created = await (await admin("POST", "/admin/interviews", body)).json();
+const resume = process.argv.includes("--resume");
+const created = resume
+  ? {
+      ok: true,
+      profile: "(resumed)",
+      ...(await (await admin("GET", `/admin/interviews/${code}`)).json()),
+    }
+  : await (await admin("POST", "/admin/interviews", body)).json();
 if (!created.ok) {
   console.error("create failed", created);
   process.exit(1);
@@ -101,22 +108,29 @@ const askPersona = async (round) => {
   return JSON.parse(data.choices[0].message.content);
 };
 
-const log = {
-  code,
-  profile: created.profile,
-  base: url.replace(/\/i\/.*/, ""),
-  startedAt: new Date().toISOString(),
-  rounds: [],
-  capped: false,
-};
+const log = resume
+  ? JSON.parse(readFileSync(out, "utf8"))
+  : {
+      code,
+      profile: created.profile,
+      base: url.replace(/\/i\/.*/, ""),
+      startedAt: new Date().toISOString(),
+      rounds: [],
+      capped: false,
+    };
 const save = () => {
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, JSON.stringify(log, null, 1));
 };
-let agentRounds = 0;
+let agentRounds = log.rounds.filter((r) => r.kind === "agent").length;
 let lastRound = null;
 for (;;) {
-  const { data: v } = await api("GET", "/state");
+  const got = await api("GET", "/state");
+  if (got.status !== 200 || !got.data.phase) {
+    await sleep(3000); // 偶发的服务端错误：等一下再看
+    continue;
+  }
+  const v = got.data;
   if (v.phase === "done") {
     log.done = true;
     break;
@@ -130,6 +144,10 @@ for (;;) {
     continue;
   }
   const r = v.round;
+  if (!r) {
+    await sleep(1500);
+    continue;
+  }
   if (lastRound === r.id) {
     await sleep(1500);
     continue;

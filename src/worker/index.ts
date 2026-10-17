@@ -279,16 +279,10 @@ const buildHandler = (db: D1Like) =>
     middleware: (app) =>
       app.pipe(
         Effect.catchCause((cause) =>
-          Effect.succeed(
-            json(
-              {
-                ok: false,
-                error: "服务出了点问题，请稍后重试",
-                detail: Cause.pretty(cause).slice(0, 600),
-              },
-              500,
-            ),
-          ),
+          // 留一条日志（`node scripts/logs.ts`），客户那边只给一句话——细节不该给客户，但也不该丢
+          Effect.sync(() =>
+            console.error("route defect:", Cause.pretty(cause).slice(0, 1500)),
+          ).pipe(Effect.as(json({ ok: false, error: "服务出了点问题，请稍后重试" }, 500))),
         ),
       ),
   });

@@ -22,6 +22,23 @@
 7. **状态只有一个家**：访谈者的 SQLite（rounds / answers / files / kv）。客户端不存任何东西，每次轮询拿服务端算好的 `InterviewView`（`src/shared/api.ts`）；答一题存一题（防抖 500ms 的 PUT）。
 8. **agent 的工具面很窄**：`ask_round`（问一轮，成功后本回合停）、`finish_interview`（需要 `/CONTEXT.md` 已写好）、`fetch_page`，加 Think 自带的工作区工具。它改不了客户的答案。`/CONTEXT.md` 是交付物。指令和消息模板只在 `src/shared/prompt.ts`。
 
+## 通用工具：任务层与协议层（`src/shared/prompt.ts`、`src/shared/profiles.ts`、`profiles/*.md`）
+
+- 这个工具以“把一件事问清楚”为核心，问什么主题由**任务层**决定；**协议层**（怎么提问、工作区、检查点、不能做什么）固定在 `prompt.ts`，**不可被覆盖**——它的每一条都对应代码里一道真实的门，被覆盖掉流程会崩。
+- 预设 = `profiles/<名>.md`（随代码评审、随部署上线）。发链接时 `POST /admin/interviews {code, brief, profile?, mission?, append?}`：选预设（默认 `cross-border-website`）、`mission` 整段覆盖、`append` 在预设后面追加。解析后的最终文本存进访谈（D1 的 `interviews.mission`，创建时快照）——之后改预设不影响进行中的访谈；老访谈两列为空，回退默认预设。`GET /admin/profiles` 列预设。
+- 第一个预设 `cross-border-website`（给米站的网站需求访谈）从生成式推出：**网站 = 由「访客的决定」选出的「证据」，终止于一个「动作」，受「真实」约束**；范围切在“动作”那一刻的交接接口（只有“报价需要知道什么→表单字段”和“多快回应→页面承诺”穿过它），所以销售流程不再是无限话题；完成的判据是每个元素都能写成“访客疑虑→证据→资产（有/要补/给不了）”三元组。改这份预设后，用 `scripts/dogfood.mjs` + `scripts/judge.mjs` 对照跑（见 `docs/dogfood-2026-10-17.md`）。
+- 轮数**不设上限**、也没有强制结束；每轮 1–5 题由 agent 定；收集资料由 agent 判断（不卡第一轮）。
+
+## 阶段检查点（`machine.ts` 的 `STAGE_ROUNDS = 10`）
+
+- 每满 10 个 agent 轮，**系统**要求检查点：agent 不能再 `ask_round`（工具和状态机两头都拒），必须先重写 `CONTEXT.md`（和上一个检查点相比要真改过：指纹不同），再调 `checkpoint`，把这一阶段听到的 6–12 条要点交给客户。题目由系统生成（agent 不能夹带别的题）：每条一道选填单选——对 / 不确定 / 不对，应该是…（客户自己写，`otherLabel`）。客户的纠正以他写的为准。
+- 客户页上的倒计时（`InterviewView.stage`）是**系统数的**，所以诚实：只说“本阶段第 N / 10 轮”，不声称总共多少轮；回头补答那一轮不计入。
+
+## 无人值守对照（`scripts/dogfood.mjs`、`scripts/judge.mjs`、`scripts/personas/`）
+
+- `dogfood.mjs`：用一份档案扮演客户（LLM），对线上跑完整访谈，记录每一轮；`--profile / --mission-file / --append` 选任务层；`--resume` 接着跑。`judge.mjs`：用同一把尺给每个问题分类（在不在“做网站”的范围内）、给每份 `CONTEXT.md` 按预设的完成判据打分。会花模型 token，不在门禁里。
+- 局限（写在报告里，别忽略）：模拟客户的知识面有限，所以访谈到 8 轮就自己收尾；评审也是 LLM，偏宽松。用来对比相对差异，不是绝对质量。
+
 ## MVP 明确不做（后面再议）
 
 - **解压缩**（zip 等）和**视频/音频**：上传时拒绝并告诉客户为什么（`rejectReason`）。要做解压，做成固定工具（防压缩炸弹、路径穿越），不要让 agent 写代码解压。
