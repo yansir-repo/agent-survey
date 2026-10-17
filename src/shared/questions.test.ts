@@ -298,6 +298,22 @@ describe("no basis, no options (groundingProblems)", () => {
       groundingProblems(mk({ mode: "confirm", basis: "主要做自有品牌批发" }), words),
     ).toHaveLength(1);
   });
+  it("a basis may quote several places, joined by …; every piece must be found", () => {
+    expect(groundingProblems(mk({ mode: "confirm", basis: "OEM…5000 只带 logo" }), words)).toEqual(
+      [],
+    );
+    expect(groundingProblems(mk({ mode: "confirm", basis: "OEM…自有品牌" }), words)).toHaveLength(
+      1,
+    );
+  });
+  it("numbers the customer typed count as his words", () => {
+    expect(
+      groundingProblems(
+        mk({ mode: "confirm", basis: "月产能 120000 只" }),
+        "月产能 " + "120000 只",
+      ),
+    ).toEqual([]);
+  });
   it("a choice question cannot be explore, and explore text needs no quote", () => {
     expect(groundingProblems(mk({ mode: "explore" }), words)).toHaveLength(1);
     expect(groundingProblems(mk({ mode: "explore" }, "text"), words)).toEqual([]);

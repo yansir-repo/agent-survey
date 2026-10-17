@@ -243,6 +243,7 @@ export const askRound = (raw: unknown) =>
     const parsed = parseAskRound(raw, used, yield* clientWords);
     if (!parsed.ok) {
       yield* bump("askRefused");
+      yield* kvSet(`refusal.${yield* Clock.currentTimeMillis}`, parsed.error.slice(0, 600));
       return { ok: false, message: `这一轮没有发出：${parsed.error}。改正后重新调用 ask_round。` };
     }
     const seq = (yield* roundRows).length + 1;
@@ -653,6 +654,9 @@ export const snapshot = Effect.gen(function* () {
         text(r, "k").slice(5),
         Number(text(r, "v")),
       ]),
+    ),
+    refusals: (yield* q("SELECT v FROM kv WHERE k LIKE 'refusal.%' ORDER BY k")).map((r) =>
+      text(r, "v"),
     ),
     machine: yield* loadMachine,
     summary: yield* kvGet("summary"),

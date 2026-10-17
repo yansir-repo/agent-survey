@@ -142,7 +142,9 @@ export const stringsOf = (v: unknown): string[] =>
       ? v.flatMap(stringsOf)
       : v !== null && typeof v === "object"
         ? Object.values(v).flatMap(stringsOf)
-        : [];
+        : typeof v === "number"
+          ? [String(v)]
+          : [];
 
 /**
  * “没有依据就不给选项”：每题必须声明 resolves 和 mode；单选/多选必须是 confirm，且 basis 要逐字出现在客户说过的话里
@@ -161,10 +163,18 @@ export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: st
         `题 ${q.id}：explore 不能给选项——你对这块没有依据时，先用开放题（text/long）听客户自己说`,
       ];
     if (q.mode === "confirm") {
-      const b = normalizeText(q.basis ?? "");
-      if (b.length < 4) return [`题 ${q.id}：confirm 必须在 basis 里引用客户的原话（至少 4 个字）`];
-      if (!hay.includes(b))
-        return [`题 ${q.id}：basis「${q.basis}」没有在客户说过的话里找到——必须逐字引用他的原话`];
+      // 一条 basis 可以引用几处原话（用 …、/、；、| 或换行隔开）：每一段都要在他的话里找到，且至少有一段不短于 4 个字
+      const parts = (q.basis ?? "")
+        .split(/\.{2,}|…|[/|；;\n]/)
+        .map(normalizeText)
+        .filter((x) => x.length >= 2);
+      if (!parts.some((x) => x.length >= 4))
+        return [`题 ${q.id}：confirm 必须在 basis 里引用客户的原话（至少 4 个字）`];
+      const missing = parts.find((x) => !hay.includes(x));
+      if (missing !== undefined)
+        return [
+          `题 ${q.id}：basis 里的「${missing}」没有在客户说过的话里找到——逐字抄他的原话（不要改写、概括；可以用 … 隔开几处原话）`,
+        ];
     }
     if (choice && q.mode !== "confirm") return [`题 ${q.id}：选项题必须是 confirm`];
     return [];
