@@ -37,7 +37,11 @@ const probe = async (history, qs) => {
   const res = await fetch(`${base}/admin/clef-probe`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ history, questions: qs.map((q) => ({ title: q.title, why: q.why })) }),
+    body: JSON.stringify({
+      mission: arg("mission") ? readFileSync(arg("mission"), "utf8") : undefined,
+      history,
+      questions: qs.map((q) => ({ title: q.title, why: q.why })),
+    }),
   });
   const data = await res.json();
   if (!data.ok) throw new Error(JSON.stringify(data));
