@@ -21,6 +21,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
 import { MODELS, resolveModel } from "../shared/models.ts";
+import { Clef, ClefLive } from "./clef.ts";
 import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
 import { ingest } from "./upload.ts";
 import {
@@ -198,6 +199,19 @@ const adminRoute = (db: D1Like) =>
           },
           201,
         );
+      }
+      // 实验用：把一份 clef 请求原样转给 Workers AI（线上才有 AI 绑定），返回每题的概率。
+      if (path === "/admin/clef-ask" && method === "POST") {
+        const body = asRecord(yield* readJson(request));
+        const asked = yield* Clef.use((c) =>
+          c.ask({
+            state: asRecord(body["state"]),
+            questions: asRecord(body["questions"]) as never,
+          }),
+        ).pipe(Effect.provide(ClefLive(env.AI)), Effect.result);
+        return asked._tag === "Failure"
+          ? json({ ok: false, error: asked.failure.message }, 502)
+          : json({ ok: true, answers: asked.success.answers });
       }
       if (path === "/admin/models" && method === "GET")
         return json({
