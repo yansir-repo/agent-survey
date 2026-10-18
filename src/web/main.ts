@@ -53,12 +53,15 @@ let pollTimer: number | undefined;
 const saveTimers: Record<string, number | undefined> = {};
 const flashTimers: Record<string, number | undefined> = {};
 
+/** 客户端所有指向服务端的地址只在这里拼（fetch 和下载链接都用它）：曾经手写 `${api}/api/…` 多了一层前缀，抽屉永远是空的。 */
+const apiUrl = (path: string): string => `${api}${path}`;
+
 const request = async <T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<{ status: number; data: T }> => {
-  const res = await fetch(`${api}${path}`, {
+  const res = await fetch(apiUrl(path), {
     method,
     headers: body === undefined ? {} : { "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -699,17 +702,17 @@ const toast = (m: string): void => {
 const openContext = async (): Promise<void> => {
   $("#drawer")!.innerHTML =
     `<button class="pill-btn close" data-close>关闭</button><h2>agent 现在的理解</h2>
-    <div class="why" style="color:var(--mute)">这是它的工作笔记，随访谈一路更新。哪里不对，在每一轮底部的“还有想补充的”里告诉它就行。 <a href="${esc(base)}/api/context?download=1">下载 .md</a></div>
+    <div class="why" style="color:var(--mute)">这是它的工作笔记，随访谈一路更新。哪里不对，在每一轮底部的“还有想补充的”里告诉它就行。 <a href="${esc(apiUrl("/context?download=1"))}">下载 .md</a></div>
     <div class="md" id="mdBody">加载中……</div>`;
   $("#drawer")!.classList.add("wide");
   $("#mask")!.classList.add("open");
-  const { status, data } = await request<{ text: string }>("GET", "/api/context");
+  const { status, data } = await request<{ text: string }>("GET", "/context");
   const body = $("#mdBody");
   if (body)
     body.innerHTML =
       status === 200 && data.text.trim() !== ""
         ? markdownToHtml(data.text)
-        : `<p>它还没有写下什么——问完第一轮之后就会有。</p>`;
+        : `<p>agent 还没有开始整理。它边问边写，过一阵再点开看。</p>`;
 };
 $("#contextBtn")?.addEventListener("click", () => void openContext());
 
