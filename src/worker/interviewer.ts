@@ -11,12 +11,14 @@ import {
   Think,
   Workspace,
   type ChatResponseResult,
+  type ChunkContext,
   type TurnConfig,
   type WorkspaceLike,
 } from "@cloudflare/think";
 import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } from "ai";
 import { Effect, Layer, Schema } from "effect";
 import type { InterviewView } from "../shared/api.ts";
+import { liveView } from "../shared/live.ts";
 import { DEFAULT_MODEL, MODELS } from "../shared/models.ts";
 import { CONTEXT_PATH, systemPrompt } from "../shared/prompt.ts";
 import { AskRound, CheckpointInput } from "../shared/questions.ts";
@@ -182,6 +184,9 @@ export class Interviewer extends Think<Cloudflare.Env> {
 
   /** 每回合：带上运营写的背景。 */
   override beforeTurn(): Promise<TurnConfig> {
+    this.liveReasoning = "";
+    this.liveArgs = "";
+    this.liveTool = null;
     return this.run(beforeTurnContext).then(({ mission, brief }) => ({
       instructions: systemPrompt(mission, brief),
       stopWhen: () => this.hasOutcome(),
@@ -214,6 +219,21 @@ export class Interviewer extends Think<Cloudflare.Env> {
     };
   }
 
+  /** 这一回合到目前为止的推理文字、ask_round 的参数文字（等待界面用；只在内存里，下一回合开始时清空）。 */
+  private liveReasoning = "";
+  private liveArgs = "";
+  private liveTool: string | null = null;
+
+  override onChunk(ctx: ChunkContext): void {
+    const c = ctx.chunk;
+    if (c.type === "reasoning-delta") this.liveReasoning += c.text;
+    else if (c.type === "tool-input-start") {
+      this.liveTool = c.toolName;
+      if (c.toolName === "ask_round") this.liveArgs = "";
+    } else if (c.type === "tool-input-delta" && this.liveTool === "ask_round")
+      this.liveArgs += c.delta;
+  }
+
   override onChatResponse(result: ChatResponseResult): Promise<void> {
     return this.run(onTurnEnded(result.status === "completed"));
   }
@@ -224,7 +244,11 @@ export class Interviewer extends Think<Cloudflare.Env> {
     return this.run(begin(brief, mission, model));
   }
   view(): Promise<InterviewView> {
-    return this.run(view);
+    return this.run(view).then((v) =>
+      v.phase === "thinking" && !v.error
+        ? { ...v, live: liveView(this.liveReasoning, this.liveArgs) }
+        : v,
+    );
   }
   saveAnswer(qid: string, value: unknown, skip: boolean): Promise<Result> {
     return this.run(saveAnswer(qid, value, skip));

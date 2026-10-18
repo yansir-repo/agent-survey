@@ -125,7 +125,7 @@ const refresh = async (): Promise<void> => {
 const schedulePoll = (): void => {
   window.clearTimeout(pollTimer);
   if (view?.phase === "thinking" && !view.error)
-    pollTimer = window.setTimeout(() => void refresh(), 2200);
+    pollTimer = window.setTimeout(() => void refresh(), 700);
 };
 
 const save = (q: Question): void => {
@@ -166,6 +166,36 @@ const flash = (qid: string): void => {
 
 // ---- 渲染 ----
 
+/** 等待时：推理文字在流，题一道一道出现（已写出的显示，没写出的是骨架）。题都只读，真正的一轮发出后才能答。 */
+const renderThinking = (app: HTMLElement, v: InterviewView): void => {
+  const live = v.live;
+  const written = live?.questions ?? [];
+  const cards = written
+    .map(
+      (q) => `<div class="skel-card ready${q.writing ? " writing" : ""}">
+        <div class="skel-title">${esc(q.title)}</div>
+        ${q.options.length ? `<div class="skel-opts">${q.options.map((o) => `<span class="chip ghost">${esc(o)}</span>`).join("")}</div>` : ""}
+      </div>`,
+    )
+    .join("");
+  const fillers = Array.from(
+    { length: Math.max(0, 3 - written.length) },
+    () =>
+      `<div class="skel-card"><div class="bar w70"></div><div class="bar w40"></div><div class="skel-opts"><span class="bar chipbar"></span><span class="bar chipbar"></span><span class="bar chipbar"></span></div></div>`,
+  ).join("");
+  const head = v.history.length ? "正在消化你的回答，想下一组问题……" : "正在准备第一组问题……";
+  const prev = app.querySelector<HTMLElement>(".live-reasoning");
+  const stick = !prev || prev.scrollTop + prev.clientHeight >= prev.scrollHeight - 8;
+  app.innerHTML = `<div class="wrap"><main class="live">
+    <div class="thinking left"><div class="spin"></div>${head}</div>
+    ${live?.intro ? `<p class="lead">${esc(live.intro)}</p>` : ""}
+    ${live?.reasoning ? `<details class="reasoning" open><summary>它在想什么</summary><pre class="live-reasoning">${esc(live.reasoning)}</pre></details>` : ""}
+    ${cards}${fillers}
+  </main></div>`;
+  const box = app.querySelector<HTMLElement>(".live-reasoning");
+  if (box && stick) box.scrollTop = box.scrollHeight;
+};
+
 const render = (): void => {
   const app = $("#app");
   if (!app) return;
@@ -177,13 +207,11 @@ const render = (): void => {
   const badge = $("#deferredCount");
   if (badge) badge.textContent = String(v.deferred.length);
   if (v.phase === "thinking") {
-    app.innerHTML = `<div class="center"><div class="thinking"><div class="spin"></div>${
-      v.error
-        ? `${esc(v.error)} <button class="pill-btn btn-retry" data-act="resume">重试</button>`
-        : v.history.length
-          ? "正在消化你的回答，想下一组问题……"
-          : "正在准备第一组问题……"
-    }</div></div>`;
+    if (v.error) {
+      app.innerHTML = `<div class="center"><div class="thinking"><div class="spin"></div>${esc(v.error)} <button class="pill-btn btn-retry" data-act="resume">重试</button></div></div>`;
+      return;
+    }
+    renderThinking(app, v);
     return;
   }
   if (v.phase === "done") {

@@ -1,4 +1,5 @@
 /** 客户端和服务端之间的形状：服务端算好、客户端只渲染。 */
+import type { LiveView } from "./live.ts";
 import type { Question, Value } from "./questions.ts";
 
 export type FileInfo = {
@@ -60,6 +61,8 @@ export type InterviewView = {
   readonly note: string;
   /** agent 那边出错了（回合中断）：客户可以点“重试”。 */
   readonly error?: string;
+  /** agent 正在想（thinking）时：推理文字的尾部、已经写出来的题。只活在内存里，没有就不带。 */
+  readonly live?: LiveView;
   /** 访谈结束后仍没答的题。 */
   readonly unanswered: ReadonlyArray<{ readonly id: string; readonly title: string }>;
 };
