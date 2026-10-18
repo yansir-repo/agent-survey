@@ -33,6 +33,22 @@ describe("the closed vocabulary", () => {
 describe("parseAskRound", () => {
   const ok = (questions: unknown[]) => ({ delta: "d", intro: "hi", questions });
 
+  it('blank optional strings (hint: "") count as absent, not as an error', () => {
+    const r = parseAskRound(
+      ok([
+        {
+          id: "a",
+          kind: "single",
+          title: "T",
+          why: "W",
+          options: [{ label: "A", hint: "" }, { label: "B" }],
+        },
+      ]),
+      new Set(),
+    );
+    expect(r.ok).toBe(true);
+  });
+
   it("accepts 1-5 well-formed questions", () => {
     const r = parseAskRound(ok([{ id: "a", kind: "text", title: "T", why: "W" }]), new Set());
     expect(r.ok).toBe(true);

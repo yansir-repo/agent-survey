@@ -127,6 +127,18 @@ export type AskRound = typeof AskRound.Type;
 const decodeAsk = Schema.decodeUnknownResult(AskRound, { onExcessProperty: "error" });
 
 /** 一轮提问的入口检查：结构对、id 不重复、不和以前问过的 id 撞。失败是 agent 读得懂的话。 */
+/** 空字符串 = 没写：模型常把不用的选填字段（hint、placeholder…）填成 ""，这不是错，等同于没有这个键。 */
+export const withoutBlanks = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map(withoutBlanks)
+    : v !== null && typeof v === "object"
+      ? Object.fromEntries(
+          Object.entries(v)
+            .filter(([, x]) => x !== "")
+            .map(([k, x]) => [k, withoutBlanks(x)]),
+        )
+      : v;
+
 /** 比对用的归一化：去掉标签、空白和标点，转小写。 */
 export const normalizeText = (t: string): string =>
   t
@@ -186,7 +198,7 @@ export const parseAskRound = (
   usedIds: ReadonlySet<string>,
   corpus: string | null = null,
 ): { ok: true; round: AskRound } | { ok: false; error: string } => {
-  const r = decodeAsk(input);
+  const r = decodeAsk(withoutBlanks(input));
   if (r._tag !== "Success")
     return {
       ok: false,
