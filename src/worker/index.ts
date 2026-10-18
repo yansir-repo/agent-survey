@@ -249,7 +249,7 @@ const adminRoute = (db: D1Like) =>
         }
         if (!one[2] && method === "DELETE") {
           const keys = yield* rpc(() => stubOf(code).wipe());
-          yield* Effect.promise(() => env.FILES.delete(keys));
+          if (keys.length > 0) yield* Effect.promise(() => env.FILES.delete(keys)); // R2 拒绝空数组
           yield* retire(code).pipe(provide, Effect.orDie);
           return json({ ok: true, removedFiles: keys.length });
         }
