@@ -192,7 +192,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
     return {
       ask_round: tool({
         description:
-          "向客户发出一轮问题（1–5 题）。调用成功后本回合结束，等客户回答。不要和别的工具一起调用。提交前逐题自查（否则这一轮会被退回）：每题都要有 resolves 和 mode；mode=explore 只能是 text/long/rich/number/link/image/file（不能有选项）；single/multi 必须 mode=confirm，basis 逐字抄客户或邀请说明里的原话（可用 … 隔开几处），不能改写；顶层要有 delta。",
+          "向客户发出一轮问题（1–8 题，其中作文题 long/rich 最多 1 道，一题只问一件事）。调用成功后本回合结束，等客户回答。不要和别的工具一起调用。提交前逐题自查（否则这一轮会被退回）：每题都要有 resolves 和 mode；mode=explore 是开放题（不能有选项）；single/multi 用 mode=guess（选项是你猜的）或 confirm（basis 逐字抄客户或邀请说明里的原话，可用 … 隔开几处，不能改写）；顶层要有 delta。",
         inputSchema: jsonSchema<unknown>(jsonOf(AskRound)),
         execute: (raw) => this.run(askRound(raw)),
       }),

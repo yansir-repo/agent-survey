@@ -27,7 +27,7 @@
 - 这个工具以“把一件事问清楚”为核心，问什么主题由**任务层**决定；**协议层**（怎么提问、工作区、检查点、不能做什么）固定在 `prompt.ts`，**不可被覆盖**——它的每一条都对应代码里一道真实的门，被覆盖掉流程会崩。
 - 预设 = `profiles/<名>.md`（随代码评审、随部署上线）。发链接时 `POST /admin/interviews {code, brief, profile?, mission?, append?}`：选预设（默认 `cross-border-website`）、`mission` 整段覆盖、`append` 在预设后面追加。解析后的最终文本存进访谈（D1 的 `interviews.mission`，创建时快照）——之后改预设不影响进行中的访谈；老访谈两列为空，回退默认预设。`GET /admin/profiles` 列预设。
 - 第一个预设 `cross-border-website`（给米站的网站需求访谈）从生成式推出：**网站 = 由「访客的决定」选出的「证据」，终止于一个「动作」，受「真实」约束**；范围切在“动作”那一刻的交接接口（只有“报价需要知道什么→表单字段”和“多快回应→页面承诺”穿过它），所以销售流程不再是无限话题；完成的判据是每个元素都能写成“访客疑虑→证据→资产（有/要补/给不了）”三元组。改这份预设后，用 `scripts/dogfood.mjs` + `scripts/judge.mjs` 对照跑（见 `docs/dogfood-2026-10-17.md`）。
-- 轮数**不设上限**、也没有强制结束；每轮 1–5 题由 agent 定；收集资料由 agent 判断（不卡第一轮）。
+- 轮数**不设上限**、也没有强制结束；每轮 1–8 题由 agent 定（作文题 long/rich 每轮最多 1 道，一题一个问号，见 `shapeProblems`）；收集资料由 agent 判断（不卡第一轮）。
 
 ## 阶段检查点（`machine.ts`：`STAGE_ROUNDS = 10` 开始催，`STAGE_FORCE = 16` 强制）
 

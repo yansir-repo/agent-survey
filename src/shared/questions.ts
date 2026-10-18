@@ -30,11 +30,13 @@ const base = {
   /**
    * 出题者的自检（agent 发起的题必填，系统自己生成的检查点题没有）：
    *   resolves 这题消除的是哪一处“不问我就得编”的地方；
-   *   mode     explore = 我对这块没有依据，听客户自己说；confirm = 选项来自客户说过的话，在验证一个假设；
+   *   mode     explore = 开放题，听客户自己说；
+   *            guess   = 选项是我猜的（没有依据也行）：猜得越像越好，都不符合时客户会自己写；
+   *            confirm = 选项来自客户说过的话，在验证一个假设；
    *   basis    confirm 必填：客户（或邀请说明里）的原话，逐字——系统会在他说过的话里找它。
    */
   resolves: Schema.optionalKey(Short(200)),
-  mode: Schema.optionalKey(Schema.Literals(["explore", "confirm"])),
+  mode: Schema.optionalKey(Schema.Literals(["explore", "guess", "confirm"])),
   basis: Schema.optionalKey(Short(200)),
 };
 
@@ -103,11 +105,13 @@ export const QUESTION_KINDS = [
   "file",
 ] as const satisfies ReadonlyArray<QuestionKind>;
 
-export const MAX_QUESTIONS_PER_ROUND = 5;
+export const MAX_QUESTIONS_PER_ROUND = 8;
+/** 一轮最多几道“小作文”题（long / rich）：客户的力气是有限的，选择题可以多，作文题不能多。 */
+export const MAX_ESSAYS_PER_ROUND = 1;
 /** 每一轮底部的自由补充（系统自带，不是 agent 的题）。 */
 export const MAX_NOTE = 2000;
 
-/** agent 一轮问什么：1–5 题，加一句开场白，以及“我现在的理解”（让客户纠错，不是进度）。 */
+/** agent 一轮问什么：1–8 题（其中最多 1 道作文题），加一句开场白，以及“我现在的理解”（让客户纠错，不是进度）。 */
 export const AskRound = Schema.Struct({
   /** 上一轮回答让 CONTEXT.md 变了什么、推翻了我哪个假设（第一轮写“第一轮，尚无回答”）。 */
   delta: Short(400),
@@ -159,8 +163,24 @@ export const stringsOf = (v: unknown): string[] =>
           : [];
 
 /**
- * “没有依据就不给选项”：每题必须声明 resolves 和 mode；单选/多选必须是 confirm，且 basis 要逐字出现在客户说过的话里
- * （corpus = 邀请说明 + 他所有的回答和补充）。探索题不能带选项。返回 agent 读得懂的问题清单。
+ * 一轮的形状（不看内容，只数）：一道题只问一件事（标题里不能有两个问号）；作文题（long / rich）一轮最多 MAX_ESSAYS_PER_ROUND 道。
+ */
+export const shapeProblems = (questions: ReadonlyArray<Question>): string[] => {
+  const compound = questions
+    .filter((q) => (q.title.match(/[？?]/g) ?? []).length >= 2)
+    .map((q) => `题 ${q.id}：一道题里有多个问号——一题只问一件事，拆成几道（能选的做成选择题）`);
+  const essays = questions.filter((q) => q.kind === "long" || q.kind === "rich");
+  return essays.length > MAX_ESSAYS_PER_ROUND
+    ? [
+        ...compound,
+        `这一轮有 ${essays.length} 道作文题（${essays.map((q) => q.id).join("、")}），最多 ${MAX_ESSAYS_PER_ROUND} 道：其余改成选择题（猜几个可能的选项，客户都不符合时会自己写），或留到下一轮`,
+      ]
+    : compound;
+};
+
+/**
+ * 选项题要声明依据：每题必须有 resolves 和 mode；单选/多选必须是 guess（选项是你猜的）或 confirm（来自客户的话）；
+ * confirm 的 basis 要逐字出现在客户说过的话里（corpus = 邀请说明 + 他所有的回答和补充）。explore 是开放题，不带选项。
  */
 export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: string): string[] => {
   const hay = normalizeText(corpus);
@@ -172,7 +192,7 @@ export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: st
     const choice = q.kind === "single" || q.kind === "multi";
     if (choice && q.mode === "explore")
       return [
-        `题 ${q.id}：explore 不能给选项——你对这块没有依据时，先用开放题（text/long）听客户自己说`,
+        `题 ${q.id}：explore 是开放题，不能带选项——要给选项就用 guess（你猜的）或 confirm（来自客户的话）`,
       ];
     if (q.mode === "confirm") {
       // 一条 basis 可以引用几处原话（用 …、/、；、| 或换行隔开）：每一段都要在他的话里找到，且至少有一段不短于 4 个字
@@ -188,7 +208,6 @@ export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: st
           `题 ${q.id}：basis 里的「${missing}」没有在客户说过的话里找到——逐字抄他的原话（不要改写、概括；可以用 … 隔开几处原话）`,
         ];
     }
-    if (choice && q.mode !== "confirm") return [`题 ${q.id}：选项题必须是 confirm`];
     return [];
   });
 };
@@ -226,6 +245,8 @@ export const parseAskRound = (
     if (usedIds.has(q.id)) return { ok: false, error: `题目 id ${q.id} 以前用过，换一个新的` };
     seen.add(q.id);
   }
+  const shape = shapeProblems(questions);
+  if (shape.length > 0) return { ok: false, error: shape.join("；") };
   if (corpus !== null) {
     const problems = groundingProblems(questions, corpus);
     if (problems.length > 0) return { ok: false, error: problems.join("；") };

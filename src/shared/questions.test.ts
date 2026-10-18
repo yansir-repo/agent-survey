@@ -4,6 +4,7 @@ import {
   QUESTION_KINDS,
   parseAskRound,
   groundingProblems,
+  shapeProblems,
   parseCheckpoint,
   uploadDir,
   validateAnswer,
@@ -54,9 +55,9 @@ describe("parseAskRound", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("rejects zero or more than five questions", () => {
+  it("rejects zero or more than eight questions", () => {
     expect(parseAskRound(ok([]), new Set()).ok).toBe(false);
-    const six = Array.from({ length: 6 }, (_, i) => ({
+    const six = Array.from({ length: 9 }, (_, i) => ({
       id: `q${i}`,
       kind: "text",
       title: "T",
@@ -337,5 +338,22 @@ describe("no basis, no options (groundingProblems)", () => {
   it("resolves and mode are required; a too-short basis does not count", () => {
     expect(groundingProblems([q("text")], words)).toHaveLength(1);
     expect(groundingProblems(mk({ mode: "confirm", basis: "OEM" }), words)).toHaveLength(1);
+  });
+});
+
+describe("the shape of a round (choice questions are cheap, essays are not)", () => {
+  it("allows at most one essay question per round", () => {
+    expect(shapeProblems([q("long", { id: "a" }), q("rich", { id: "b" })])).toHaveLength(1);
+    expect(shapeProblems([q("long", { id: "a" }), q("text", { id: "b" })])).toEqual([]);
+  });
+  it("one question asks one thing: two question marks are refused", () => {
+    expect(shapeProblems([q("text", { title: "几个？分别是谁？" })])).toHaveLength(1);
+    expect(shapeProblems([q("text", { title: "几个？" })])).toEqual([]);
+  });
+  it("a guessed option set needs no quote, a confirmed one does", () => {
+    const opts = { options: [{ label: "A" }, { label: "B" }], resolves: "r" };
+    expect(groundingProblems([q("single", { ...opts, mode: "guess" })], "")).toEqual([]);
+    expect(groundingProblems([q("single", { ...opts, mode: "confirm" })], "")).toHaveLength(1);
+    expect(groundingProblems([q("single", { ...opts, mode: "explore" })], "")).toHaveLength(1);
   });
 });
