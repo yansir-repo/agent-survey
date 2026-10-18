@@ -36,6 +36,14 @@
 - **clef 只做单题布尔判断**（`askRound` 里规则校验之后）：该拆吗——**只看文字类题（text/long/rich）**，选择题的“（可多选）”会让它误判。输入只有这一道题的标题和方式，每题一个请求、两个条件并列（实验见 `docs/clef-bool-2026-10-18.md`）；**不要**把条件合成一个“全满足”的复合问题，**不要**让它读整段对话或出题者的 `why`（范围/重复/意外检测已验证不可用，见 `docs/model-comparison-2026-10-17.md` 末尾）。clef 不可用 = 放行并计数（`stat.clefDown`）；连续被它退回 2 次后这一轮不再问它。
 - **等待界面**：Think 的 `onChunk` 把推理文字和 `ask_round` 的参数文字（流式的半截 JSON）存在 DO 内存里，`view()` 在 thinking 时带上 `live`（`src/shared/live.ts` 把半截 JSON 补全、取出已成形的题）；客户端 0.7s 轮询，推理文字实时显示，题一道一道出现，其余是骨架。DeepSeek 的推理和工具参数都是增量流（实测）。
 
+## agent-first：发邀请的体验（`src/shared/guide.ts`、`scripts/invite.ts`）
+
+- 运营侧的 agent 只做三件事：**创建 → 等 → 取结果**。说明书只有一份（`guide.ts` 的 `guideText`，接口清单、字段、`brief` 怎么写都在里面；预设/模型清单由 `index.ts` 从 `PROFILES` / `MODELS` 传入，不重复），线上是 `GET /admin/guide`，公开副本 `/llms.txt`（不含凭证和客户信息，所以公开；`runWorkerFirst` 要列它）。改接口时改 `guide.ts`，`index.ts` 顶部的注释只指向它。
+- `GET /admin/interviews/<code>/result`：`{phase, rounds, summary, context, unanswered}`，很小，轮询用；`GET /admin/interviews/<code>`（整份快照，约 75 KB）只在调试时用。
+- 创建同一个 code：409 并带 `existing.url`；删除过的 code 永久作废（`retired: true`），因为 code 是 Durable Object 的名字。删除要先确认访谈存在，再清 DO 和 R2。
+- 命令行 `scripts/invite.ts`（`vp run invite` 登记，不在门禁里：要连线上、要运营令牌）：`create|list|result|wait|rotate|delete|guide|profiles|models`，输出 JSON；`delete` 必须 `--yes`；`wait` 退出码 3 = 超时。
+- **还没做（等商量）**：预置资料（运营侧给访谈者预先放文档）；完成通知/webhook（现在靠 `wait` 轮询）。
+
 ## 客户看得到 CONTEXT.md
 
 - `GET /i/<code>.<key>/api/context`（`?download=1` 下载）把 agent 的 `/CONTEXT.md` 交给客户：顶栏“agent 的理解”打开抽屉，用 `src/shared/md.ts`（先转义再加标签、链接只放行 http(s)）渲染；结束页也有入口。理由：客户不知道 agent 理解到哪了，就没法在补充框里纠正它。文档是 agent 的工作笔记，不是承诺。
@@ -94,4 +102,4 @@
 
 - `vp run deploy` = ci → `cf:ready`（刷新 cf 令牌：令牌过期后的第一个 `cf` 调用会被拒，见 38 的 docs/deploy.md）→ 远程迁移 → `cf:ready` → `cf deploy --secrets-file data/prod-secrets.json`。
 - 密钥在 `data/prod-secrets.json`（gitignored）：`DEEPSEEK_API_KEY`、`ADMIN_TOKEN`。模型是 DeepSeek（OpenAI 兼容接口，thinking 关闭）。
-- 资源：Worker `grill-me`、D1 `grill-me`、R2 `grill-me-files`、Durable Object `Interviewer`（SQLite）。创建访谈：`POST /admin/interviews {code, brief}` → 客户的链接。
+- 资源：Worker `grill-me`、D1 `grill-me`、R2 `grill-me-files`、Durable Object `Interviewer`（SQLite）。创建访谈：`node scripts/invite.ts create …`（或 `POST /admin/interviews {code, brief}`）→ 客户的链接；说明书见上一节。

@@ -60,6 +60,8 @@ export default defineConfig({
       "db:migrate:remote": { command: "node scripts/db-remote.mjs", cache: false },
       // Operator command: refreshes cf's OAuth token before it is used (the first call after an expiry is refused with 7403).
       "cf:ready": { command: "node scripts/cf-ready.mjs", cache: false },
+      // Operator command, never part of the gate: talks to the live Worker with the operator's ADMIN_TOKEN. Usage: scripts/invite.ts.
+      invite: { command: "node scripts/invite.ts", cache: false },
       "pre-commit": { command: "vp staged", cache: false },
       "pre-push": { command: JUDGMENTS.map((task) => `vp run ${task}`), cache: false },
       ci: { dependsOn: [...JUDGMENTS], command: "vp build", cache: false },

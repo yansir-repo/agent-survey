@@ -8,25 +8,22 @@
  *   POST   /i/<code>.<key>/api/files?qid=       upload (multipart, several files, drag & drop)
  *   DELETE /i/<code>.<key>/api/files?path=
  *   POST   /i/<code>.<key>/api/resume           the agent's turn broke: try again
- *   POST   /admin/interviews                    create one → the client link       (Authorization: Bearer <ADMIN_TOKEN>)
- *   GET    /admin/interviews[/<code>]           list / everything about one
- *   POST   /admin/interviews/<code>/rotate      new key, old link dies
- *   DELETE /admin/interviews/<code>              wipe it (DO storage + R2 files); the code is retired for good
- *   GET    /admin/interviews/<code>/file?path=  read a workspace file (e.g. /CONTEXT.md)
- *   GET    /admin/formats                       what toMarkdown supports now vs what we accept
+ *   /admin/*  the operator's side (Bearer ADMIN_TOKEN) — create / list / result / rotate / delete; the endpoint list lives in
+ *             src/shared/guide.ts (served as GET /admin/guide and the public /llms.txt), not here.
  */
 import { env } from "cloudflare:workers";
 import { Cause, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
-import { MODELS, resolveModel } from "../shared/models.ts";
+import { DEFAULT_MODEL, MODELS, resolveModel } from "../shared/models.ts";
+import { guideText } from "../shared/guide.ts";
 import { CONTEXT_PATH } from "../shared/prompt.ts";
-import { Clef, ClefLive } from "./clef.ts";
 import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
 import { ingest } from "./upload.ts";
 import {
   InterviewExists,
+  InterviewRetired,
   InterviewInvalid,
   InterviewNotFound,
   create,
@@ -35,6 +32,7 @@ import {
   normalizeCode,
   open,
   parseInterviewPath,
+  find,
   retire,
   rotate,
   sameSecret,
@@ -192,8 +190,29 @@ const adminRoute = (db: D1Like) =>
         ).pipe(provide, Effect.result);
         if (made._tag === "Failure") {
           const e = made.failure;
-          return e instanceof InterviewExists
-            ? json({ ok: false, error: `${e.code} 已经存在` }, 409)
+          if (e instanceof InterviewExists) {
+            const have = yield* find(e.code).pipe(provide);
+            return json(
+              {
+                ok: false,
+                error: `${e.code} 已经存在（响应里的 existing.url 就是它的链接；要重新来过，换一个 code）`,
+                ...(have
+                  ? {
+                      existing: {
+                        code: have.code,
+                        url: `${origin()}${interviewPath(have.code, have.key)}`,
+                      },
+                    }
+                  : {}),
+              },
+              409,
+            );
+          }
+          return e instanceof InterviewRetired
+            ? json(
+                { ok: false, retired: true, error: `${e.code} 曾经删除过，code 永久作废，换一个` },
+                409,
+              )
             : e instanceof InterviewInvalid
               ? json({ ok: false, error: e.message }, 422)
               : yield* Effect.die(e);
@@ -211,19 +230,10 @@ const adminRoute = (db: D1Like) =>
           201,
         );
       }
-      // 实验用：把一份 clef 请求原样转给 Workers AI（线上才有 AI 绑定），返回每题的概率。
-      if (path === "/admin/clef-ask" && method === "POST") {
-        const body = asRecord(yield* readJson(request));
-        const asked = yield* Clef.use((c) =>
-          c.ask({
-            state: asRecord(body["state"]),
-            questions: asRecord(body["questions"]) as never,
-          }),
-        ).pipe(Effect.provide(ClefLive(env.AI)), Effect.result);
-        return asked._tag === "Failure"
-          ? json({ ok: false, error: asked.failure.message }, 502)
-          : json({ ok: true, answers: asked.success.answers });
-      }
+      if (path === "/admin/guide" && method === "GET")
+        return HttpServerResponse.text(guide(url.origin), {
+          contentType: "text/markdown; charset=utf-8",
+        });
       if (path === "/admin/models" && method === "GET")
         return json({
           models: Object.entries(MODELS).map(([name, m]) => ({
@@ -261,7 +271,7 @@ const adminRoute = (db: D1Like) =>
         );
         return json({ interviews: rows });
       }
-      const one = /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file)?$/.exec(path);
+      const one = /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result)?$/.exec(path);
       if (one) {
         const code = normalizeCode(one[1]!);
         if (one[2] === "/rotate" && method === "POST") {
@@ -272,17 +282,19 @@ const adminRoute = (db: D1Like) =>
               : yield* Effect.die(r.failure)
             : json({ ok: true, url: `${origin()}${interviewPath(code, r.success.key)}` });
         }
+        const exists = yield* list.pipe(
+          provide,
+          Effect.map((all) => all.find((i) => i.code === code)),
+        );
+        if (!exists) return json({ ok: false, error: "没有这个访谈" }, 404);
         if (!one[2] && method === "DELETE") {
           const keys = yield* rpc(() => stubOf(code).wipe());
           if (keys.length > 0) yield* Effect.promise(() => env.FILES.delete(keys)); // R2 拒绝空数组
           yield* retire(code).pipe(provide, Effect.orDie);
           return json({ ok: true, removedFiles: keys.length });
         }
-        const exists = yield* list.pipe(
-          provide,
-          Effect.map((all) => all.find((i) => i.code === code)),
-        );
-        if (!exists) return json({ ok: false, error: "没有这个访谈" }, 404);
+        if (one[2] === "/result" && method === "GET")
+          return json({ ok: true, code, ...(yield* rpc(() => stubOf(code).outcome())) });
         if (one[2] === "/file" && method === "GET") {
           const text = yield* rpc(() =>
             stubOf(code).readWorkspace(url.searchParams.get("path") ?? ""),
@@ -337,6 +349,22 @@ const buildHandler = (db: D1Like) =>
       ),
   });
 
+const guide = (origin: string): string =>
+  guideText({
+    origin,
+    profiles: Object.entries(PROFILES).map(([name, p]) => ({ name, title: p.title })),
+    defaultProfile: DEFAULT_PROFILE,
+    models: Object.entries(MODELS).map(([name, m]) => ({
+      name,
+      title: m.title,
+      available:
+        m.provider === "deepseek"
+          ? env.DEEPSEEK_API_KEY !== "none"
+          : env.AIHUBMIX_API_KEY !== "none",
+    })),
+    defaultModel: DEFAULT_MODEL,
+  });
+
 /** 首页：没有入口、不列任何访谈——访谈只能从运营发的专属链接进。 */
 const HOME = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>需求访谈</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f4ef;color:#23201b;font:16px/1.7 -apple-system,"PingFang SC",sans-serif;text-align:center;padding:24px}h1{font-size:24px;margin:0 0 8px}p{color:#7a7468;margin:0}</style></head>
@@ -349,6 +377,13 @@ export default {
       return Promise.resolve(
         new Response(HOME, {
           headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex" },
+        }),
+      );
+    // 给 agent 的说明书：不含任何凭证或客户信息，所以公开
+    if (pathname === "/llms.txt" && request.method === "GET")
+      return Promise.resolve(
+        new Response(guide(new URL(request.url).origin), {
+          headers: { "content-type": "text/markdown; charset=utf-8", "x-robots-tag": "noindex" },
         }),
       );
     if (!pathname.startsWith("/i/") && !pathname.startsWith("/admin/"))

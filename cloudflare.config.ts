@@ -17,7 +17,7 @@ export default defineConfig((ctx) => ({
     assets: {
       // The interview page is only ever served by the Worker, behind its key.
       notFoundHandling: "none",
-      runWorkerFirst: ["/", "/i/*", "/admin/*"],
+      runWorkerFirst: ["/", "/llms.txt", "/i/*", "/admin/*"],
     },
     // 访谈者：每个访谈一个 Think Durable Object（SQLite 存轮次、答案、对话和工作区文件）。
     exports: {

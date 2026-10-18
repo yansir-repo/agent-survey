@@ -9,6 +9,9 @@ import { Db, num, str } from "./db.ts";
 export class InterviewExists extends Data.TaggedError("InterviewExists")<{
   readonly code: string;
 }> {}
+export class InterviewRetired extends Data.TaggedError("InterviewRetired")<{
+  readonly code: string;
+}> {}
 export class InterviewNotFound extends Data.TaggedError("InterviewNotFound")<{
   readonly what: string;
 }> {}
@@ -79,11 +82,10 @@ export const create = (
     if (brief.length > 8000)
       return yield* new InterviewInvalid({ message: "背景太长了（最多 8000 个字）" });
     const db = yield* Db;
-    if (
-      (yield* db.first("SELECT code FROM interviews WHERE code = ?", [code])) !== undefined ||
-      (yield* db.first("SELECT code FROM retired_codes WHERE code = ?", [code])) !== undefined
-    )
+    if ((yield* db.first("SELECT code FROM interviews WHERE code = ?", [code])) !== undefined)
       return yield* new InterviewExists({ code });
+    if ((yield* db.first("SELECT code FROM retired_codes WHERE code = ?", [code])) !== undefined)
+      return yield* new InterviewRetired({ code });
     const key = yield* randomKey;
     yield* db.run(
       "INSERT INTO interviews (code, key, brief, profile, mission, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

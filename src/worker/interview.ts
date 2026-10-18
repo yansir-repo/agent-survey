@@ -883,6 +883,19 @@ export const readWorkspace = (path: string) =>
     return yield* Effect.promise(() => host.readFile(path));
   });
 
+/** 取结果（运营的 agent 轮询用）：很小——phase、总结、CONTEXT.md 全文、客户始终没答的题。phase 不是 done 时 context 只是草稿。 */
+export const outcome = Effect.gen(function* () {
+  const host = yield* Host;
+  const v = yield* view;
+  return {
+    phase: v.phase,
+    rounds: v.history.length,
+    summary: (yield* kvGet("summary")) ?? "",
+    context: (yield* Effect.promise(() => host.readFile(CONTEXT_PATH))) ?? "",
+    unanswered: v.unanswered,
+  };
+});
+
 /** 删除前：列出这个访谈在 R2 里的所有对象（DO 的存储由 DO 自己清）。 */
 export const r2Keys = Effect.map(q("SELECT r2_key FROM files"), (rows) =>
   rows.map((r) => text(r, "r2_key")),

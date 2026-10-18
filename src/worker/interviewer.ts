@@ -35,6 +35,7 @@ import {
   finishInterview,
   onTurnEnded,
   putFile,
+  outcome,
   r2Keys,
   readWorkspace,
   removeFile,
@@ -312,6 +313,9 @@ export class Interviewer extends Think<Cloudflare.Env> {
         return keys;
       }),
     );
+  }
+  outcome() {
+    return this.run(outcome);
   }
   readWorkspace(path: string): Promise<string | null> {
     return this.run(readWorkspace(path));
