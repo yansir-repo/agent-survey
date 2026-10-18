@@ -17,6 +17,7 @@ import {
 } from "@cloudflare/think";
 import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } from "ai";
 import { Effect, Layer, Schema } from "effect";
+import { Clef, ClefLive } from "./clef.ts";
 import type { InterviewView } from "../shared/api.ts";
 import { liveView } from "../shared/live.ts";
 import { DEFAULT_MODEL, MODELS } from "../shared/models.ts";
@@ -55,11 +56,13 @@ export type { Result };
 export const runInterviewEffect = <A>(
   store: Context<typeof Store>,
   host: Context<typeof Host>,
-  program: Effect.Effect<A, never, Store | Host>,
+  program: Effect.Effect<A, never, Store | Host | Clef>,
 ): Promise<A> =>
   Effect.runPromise(
     program.pipe(
-      Effect.provide(Layer.mergeAll(Layer.succeed(Store, store), Layer.succeed(Host, host))),
+      Effect.provide(
+        Layer.mergeAll(Layer.succeed(Store, store), Layer.succeed(Host, host), ClefLive(host.ai)),
+      ),
     ),
   );
 type Context<T extends { Service: unknown }> = T["Service"];
@@ -94,7 +97,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
     return this.workspace;
   }
 
-  private run<A>(program: Effect.Effect<A, never, Store | Host>): Promise<A> {
+  private run<A>(program: Effect.Effect<A, never, Store | Host | Clef>): Promise<A> {
     const first = !this.ready;
     this.ready = true;
     const store: Context<typeof Store> = {

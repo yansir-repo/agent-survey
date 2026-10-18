@@ -9,6 +9,7 @@
  * files 客户上传的文件（原件在 R2，转成文字的 Markdown 在工作区 /uploads/…）；kv 状态机、背景、本回合的结果标记。
  */
 import { Clock, Context, Effect, Schema } from "effect";
+import { Clef } from "./clef.ts";
 import type { FileInfo, InterviewView, RoundView } from "../shared/api.ts";
 import { markdownPath } from "../shared/files.ts";
 import {
@@ -32,6 +33,7 @@ import {
   type Question,
   type Value,
 } from "../shared/questions.ts";
+import { readTitle, titleProblems, titleRequest } from "../shared/clef-gates.ts";
 import { answersMarkdown, type Answered } from "../shared/render.ts";
 import { checkPublicUrl } from "../shared/url-guard.ts";
 import { htmlToMarkdown } from "./convert.ts";
@@ -232,6 +234,26 @@ const clientWords = Effect.gen(function* () {
   ].join("\n");
 });
 
+/**
+ * clef 对每道题的标题做两个布尔判断（该拆 / 能改成选择题）。clef 不可用 = 放行并计数（它只是比代码规则更懂一点的第二道关，
+ * 不是必经之路）；连续被它退回两次后这一轮不再问它，免得出题者和它来回打转。
+ */
+const clefProblems = (questions: ReadonlyArray<Question>) =>
+  Effect.gen(function* () {
+    if ((Number((yield* kvGet("clef.refused")) ?? "0") || 0) >= 2) return [] as string[];
+    const clef = yield* Clef;
+    const perQuestion = yield* Effect.forEach(
+      questions,
+      (q) =>
+        clef.ask(titleRequest(q.title, q.kind)).pipe(
+          Effect.map((r) => titleProblems(q.id, q.kind, readTitle(r.answers))),
+          Effect.catch(() => Effect.as(bump("clefDown"), [] as ReadonlyArray<string>)),
+        ),
+      { concurrency: 4 },
+    );
+    return perQuestion.flat();
+  });
+
 export const askRound = (raw: unknown) =>
   Effect.gen(function* () {
     if (checkpointForced(yield* loadMachine))
@@ -246,6 +268,24 @@ export const askRound = (raw: unknown) =>
       yield* kvSet(`refusal.${yield* Clock.currentTimeMillis}`, parsed.error.slice(0, 600));
       return { ok: false, message: `这一轮没有发出：${parsed.error}。改正后重新调用 ask_round。` };
     }
+    const clefSays = yield* clefProblems(parsed.round.questions);
+    if (clefSays.length > 0) {
+      yield* bump("askRefused");
+      yield* bump("clefRefused");
+      yield* kvSet(
+        "clef.refused",
+        String((Number((yield* kvGet("clef.refused")) ?? "0") || 0) + 1),
+      );
+      yield* kvSet(
+        `refusal.${yield* Clock.currentTimeMillis}`,
+        `clef：${clefSays.join("；")}`.slice(0, 600),
+      );
+      return {
+        ok: false,
+        message: `这一轮没有发出：${clefSays.join("；")}。改正后重新调用 ask_round。`,
+      };
+    }
+    yield* kvSet("clef.refused", "0");
     const seq = (yield* roundRows).length + 1;
     const id = `r${seq}`;
     yield* q(
