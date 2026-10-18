@@ -763,17 +763,19 @@ const openProvidedFile = async (path: string): Promise<void> => {
   $("#drawer")!.classList.add("wide");
   $("#drawer")!.innerHTML =
     `<button class="pill-btn close" data-close>关闭</button><button class="pill-btn" data-act="pback">← 资料列表</button><h2 id="pname">加载中……</h2><div class="md" id="mdBody"></div>`;
-  const { status, data } = await request<{ name: string; text: string; status: string }>(
-    "GET",
-    `/provided/file?path=${encodeURIComponent(path)}`,
-  );
+  const { status, data } = await request<{
+    name: string;
+    text: string;
+    status: string;
+    truncated?: boolean;
+  }>("GET", `/provided/file?path=${encodeURIComponent(path)}`);
   const name = $("#pname");
   const body = $("#mdBody");
   if (name) name.textContent = status === 200 ? data.name : "读不到";
   if (body)
     body.innerHTML =
       status === 200 && data.text.trim() !== ""
-        ? markdownToHtml(data.text)
+        ? `${data.truncated ? `<p class="why" style="color:var(--mute)">这份资料很长，这里只显示开头一部分；访谈者读的是完整内容。</p>` : ""}${markdownToHtml(data.text)}`
         : `<p>这份资料没能转成文字，访谈者也读不到它的内容。</p>`;
 };
 $("#providedBtn")?.addEventListener("click", openProvided);

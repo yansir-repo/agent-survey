@@ -48,6 +48,7 @@ const PRIVATE = { "cache-control": "private, no-store", "x-robots-tag": "noindex
 const json = (data: unknown, status = 200) =>
   HttpServerResponse.jsonUnsafe(data, { status, headers: PRIVATE });
 const stubOf = (code: string) => env.Interviewer.get(env.Interviewer.idFromName(code));
+const PREVIEW_CHARS = 150_000;
 const origin = () => env.PUBLIC_URL.replace(/\/$/, "");
 
 /** A Durable Object RPC call as an effect (`await` unwraps the stub's pipelined promise types). */
@@ -119,7 +120,15 @@ const clientRoute = (db: D1Like) =>
         const f = view.files.find((x) => x.path === path && sourceOfQid(x.qid) !== null);
         if (!f) return json({ ok: false, error: "没有这份资料" }, 404);
         const text = yield* rpc(() => stub.readWorkspace(`/${markdownPath(f.path)}`));
-        return json({ ok: true, name: f.name, text: text ?? "", status: f.status });
+        // 页面上读的是节选（几 MB 的文档塞进浏览器会卡死）；访谈者读的是完整内容
+        const whole = text ?? "";
+        return json({
+          ok: true,
+          name: f.name,
+          text: whole.slice(0, PREVIEW_CHARS),
+          truncated: whole.length > PREVIEW_CHARS,
+          status: f.status,
+        });
       }
       // 客户看得到 agent 写的 CONTEXT.md（它眼里的“我对你的理解”），也可以下载
       if (rest === "/api/context" && method === "GET") {
