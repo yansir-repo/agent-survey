@@ -12,6 +12,7 @@ import { Clock, Context, Effect, Schema } from "effect";
 import { Clef } from "./clef.ts";
 import type { FileInfo, InterviewView, RoundView } from "../shared/api.ts";
 import { markdownPath } from "../shared/files.ts";
+import { providedListing, sourceOfQid, type ProvidedUrl } from "../shared/provided.ts";
 import {
   STAGE_ROUNDS,
   checkpointForced,
@@ -237,6 +238,12 @@ const apply = (e: Event, answers?: Submission) =>
 
 /** 客户说过的话：邀请说明 + 所有回答 + 每轮的补充。出题者的 basis 必须逐字出自这里。 */
 const clientWords = Effect.gen(function* () {
+  const host = yield* Host;
+  // 客户提供的预置资料（不含“我们做的调研”）也算他说过的话
+  const provided = yield* Effect.forEach(
+    (yield* fileInfos).filter((f) => sourceOfQid(f.qid) === "client" && f.status === "ok"),
+    (f) => Effect.promise(() => host.readFile(`/${markdownPath(f.path)}`)),
+  );
   const answers = yield* q("SELECT value FROM answers");
   const notes = yield* q("SELECT v FROM kv WHERE k LIKE 'note:%'");
   const parse = (s: string): unknown => {
@@ -247,6 +254,7 @@ const clientWords = Effect.gen(function* () {
     (yield* kvGet("brief")) ?? "",
     ...answers.flatMap((r) => (r["value"] === null ? [] : stringsOf(parse(text(r, "value"))))),
     ...notes.map((r) => text(r, "v")),
+    ...provided.map((t) => t ?? ""),
   ].join("\n");
 });
 
@@ -617,16 +625,47 @@ export const onTurnEnded = (completed: boolean) =>
 
 // ---- Worker 调用的程序 ----
 
-export const begin = (brief: string, mission: string, model: string) =>
+/** 第一回合：把背景和运营预先放进来的资料（按出处标明）一起交给访谈者。只会发一次。 */
+const startTurn = Effect.gen(function* () {
+  const host = yield* Host;
+  yield* kvDel("deferred.start");
+  const files = yield* fileInfos;
+  const listing = providedListing(files, yield* providedUrls, (p) => `/${markdownPath(p)}`);
+  const brief = (yield* kvGet("brief")) ?? "";
+  yield* Effect.promise(() =>
+    host.send(promptText("begin", { brief, provided: listing }), "begin"),
+  );
+});
+
+/** start = false：先建好、等运营把资料放完再 start（客户那时看到的是“正在准备”）。 */
+export const begin = (brief: string, mission: string, model: string, start = true) =>
   Effect.gen(function* () {
-    const host = yield* Host;
     if ((yield* kvGet("begun")) !== null) return;
     yield* kvSet("begun", "1");
     yield* kvSet("brief", brief);
     yield* kvSet("mission", mission);
     yield* kvSet("model", model);
     yield* saveMachine(initial);
-    yield* Effect.promise(() => host.send(promptText("begin", { brief }), "begin"));
+    if (start) yield* startTurn;
+    else yield* kvSet("deferred.start", "1");
+  });
+
+export const start = Effect.gen(function* () {
+  if ((yield* kvGet("deferred.start")) === null) return;
+  yield* startTurn;
+});
+
+const providedUrls = Effect.map(kvGet("provided.urls"), (raw): ProvidedUrl[] =>
+  raw === undefined || raw === null ? [] : (JSON.parse(raw) as ProvidedUrl[]),
+);
+
+/** 运营预置的网址（访谈者用 fetch_page 读；客户在页面上看得到）。重复的网址只留一条。 */
+export const addUrls = (urls: ReadonlyArray<ProvidedUrl>) =>
+  Effect.gen(function* () {
+    const have = yield* providedUrls;
+    const merged = [...have, ...urls.filter((u) => !have.some((h) => h.url === u.url))];
+    yield* kvSet("provided.urls", JSON.stringify(merged));
+    return merged.length;
   });
 
 /** 客户这边一次轮询看到的全部。 */
@@ -675,6 +714,8 @@ export const view = Effect.gen(function* () {
     answers,
     skipped,
     files: yield* fileInfos,
+    providedUrls: yield* providedUrls,
+    preparing: (yield* kvGet("deferred.start")) !== null,
     history,
     understanding: lastAgent
       ? (JSON.parse(text(lastAgent, "understanding")) as InterviewView["understanding"])

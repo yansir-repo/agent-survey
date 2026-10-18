@@ -3,6 +3,9 @@
  * 接口说明在 `node scripts/invite.ts guide`（同一份文字，来自线上 /admin/guide）。
  *
  *   node scripts/invite.ts create --code acme-2026 --brief "客户是…" [--brief-file f.md] [--profile P] [--model M] [--append "…"] [--mission-file f.md]
+ *        预置资料（访谈者开问前先读；客户在页面上看得到；文档不限长度，brief 太长就改成文档）：
+ *          [--material 客户给的文件]… [--url 客户给的网址]…      出处 = 客户提供的：算客户说过的话，可当 confirm 的依据
+ *          [--ours 我们做的调研文件]… [--ours-url 调研网址]…      出处 = 我们的调研：只当线索，不当依据
  *   node scripts/invite.ts list
  *   node scripts/invite.ts result --code acme-2026 [--out CONTEXT.md]     # phase / summary / context / unanswered
  *   node scripts/invite.ts wait   --code acme-2026 [--timeout 3600] [--every 20]   # 等到 phase = done，再打印结果
@@ -88,6 +91,34 @@ const json = async (
   }
   return data;
 };
+/** 重复出现的 --name：每次的值。 */
+const all = (name: string): string[] =>
+  argv.flatMap((a, i) => (a === `--${name}` && argv[i + 1] !== undefined ? [argv[i + 1]!] : []));
+
+/** 把一组文件作为同一出处的预置资料传上去。 */
+const upload = async (
+  code: string,
+  source: "client" | "ours",
+  paths: string[],
+): Promise<unknown> => {
+  const form = new FormData();
+  form.set("source", source);
+  for (const p of paths) {
+    if (!existsSync(p)) return fail(`文件不存在：${p}`, 2);
+    form.append("file", new Blob([readFileSync(p)]), p.split("/").pop() ?? p);
+  }
+  const res = await fetch(`${base}/admin/interviews/${code}/materials`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token()}` },
+    body: form,
+  });
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { ok: false, error: `HTTP ${res.status}：${text.slice(0, 200)}` };
+  }
+};
 const need = (name: string): string => flag(name) ?? fail(`缺 --${name}`, 2);
 const fileOrFlag = (text: string, file: string): string | undefined =>
   flag(file) !== undefined ? readFileSync(flag(file)!, "utf8") : flag(text);
@@ -97,15 +128,39 @@ const result = async (code: string): Promise<Record<string, unknown>> =>
 
 switch (cmd) {
   case "create": {
+    const code = need("code");
+    const files = { client: all("material"), ours: all("ours") };
+    const hasFiles = files.client.length + files.ours.length > 0;
+    const urls = [
+      ...all("url").map((url) => ({ url, source: "client" })),
+      ...all("ours-url").map((url) => ({ url, source: "ours" })),
+    ];
     const body = {
-      code: need("code"),
+      code,
       brief: fileOrFlag("brief", "brief-file") ?? "",
       profile: flag("profile"),
       model: flag("model"),
       append: flag("append"),
       mission: fileOrFlag("mission", "mission-file"),
+      urls,
+      // 有文件要传：先建好，传完再开始（客户那时看到的是“正在准备”）
+      start: !hasFiles,
     };
-    print(await json("POST", "/admin/interviews", body));
+    const created = await json("POST", "/admin/interviews", body);
+    if (!hasFiles) {
+      print(created);
+      break;
+    }
+    const materials = [
+      ...(files.client.length
+        ? [{ source: "client", ...((await upload(code, "client", files.client)) as object) }]
+        : []),
+      ...(files.ours.length
+        ? [{ source: "ours", ...((await upload(code, "ours", files.ours)) as object) }]
+        : []),
+    ];
+    const started = await json("POST", `/admin/interviews/${code}/start`);
+    print({ ...created, materials, started: started["ok"] });
     break;
   }
   case "list":

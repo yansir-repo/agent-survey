@@ -80,7 +80,10 @@ export const create = (
         message: "code 只能用小写字母、数字、横线（2–39 个字符）",
       });
     if (brief.length > 8000)
-      return yield* new InterviewInvalid({ message: "背景太长了（最多 8000 个字）" });
+      return yield* new InterviewInvalid({
+        message:
+          "背景太长了（最多 8000 个字）：更长的内容请当文档上传（POST /admin/interviews/<code>/materials，文档不限长度），brief 只写要点",
+      });
     const db = yield* Db;
     if ((yield* db.first("SELECT code FROM interviews WHERE code = ?", [code])) !== undefined)
       return yield* new InterviewExists({ code });

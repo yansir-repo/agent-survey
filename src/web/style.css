@@ -921,3 +921,49 @@ main.live {
 .md a {
   color: var(--accent);
 }
+
+/* 等待时它在干什么 + 资料抽屉 */
+.activity {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0 0 0 4px;
+  font-size: 13px;
+  color: var(--mute);
+}
+.activity li {
+  padding: 2px 0 2px 20px;
+  position: relative;
+}
+.activity li.done::before {
+  content: "✓";
+  position: absolute;
+  left: 2px;
+  color: var(--ok);
+}
+.activity li.now {
+  color: var(--ink);
+}
+.activity li.now::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: blink 1s steps(2) infinite;
+}
+.pgroup {
+  margin: 18px 0 0;
+  font-size: 14px;
+}
+.linklike {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+}
+.linklike:hover {
+  text-decoration: underline;
+}

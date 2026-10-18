@@ -48,6 +48,8 @@ export type LiveView = {
   readonly reasoning: string;
   readonly intro: string;
   readonly questions: ReadonlyArray<LiveQuestion>;
+  /** 它刚刚在干什么（读资料、打开网页、记笔记……），最近几条。 */
+  readonly activity: ReadonlyArray<string>;
 };
 
 export const REASONING_TAIL = 700;
@@ -57,7 +59,11 @@ const isObject = (v: unknown): v is Readonly<Record<string, unknown>> =>
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** reasoning = 到目前为止的推理文字；args = ask_round 到目前为止收到的参数文字（没有就空）。 */
-export const liveView = (reasoning: string, args: string): LiveView => {
+export const liveView = (
+  reasoning: string,
+  args: string,
+  activity: ReadonlyArray<string> = [],
+): LiveView => {
   const tail =
     reasoning.length > REASONING_TAIL ? `…${reasoning.slice(-REASONING_TAIL)}` : reasoning;
   const root = args === "" ? undefined : completeJson(args);
@@ -74,5 +80,5 @@ export const liveView = (reasoning: string, args: string): LiveView => {
       writing: i === all.length - 1,
     }))
     .filter((q) => q.title !== "");
-  return { reasoning: tail, intro: isObject(root) ? str(root["intro"]) : "", questions };
+  return { reasoning: tail, intro: isObject(root) ? str(root["intro"]) : "", questions, activity };
 };

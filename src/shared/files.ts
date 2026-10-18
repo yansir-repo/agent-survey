@@ -50,9 +50,13 @@ export const classify = (name: string): FileClass | null => {
 };
 
 /** 给客户看的“收不了”的原因（agent 也读得到）。 */
-export const rejectReason = (name: string, bytes: number): string | null => {
+export const rejectReason = (
+  name: string,
+  bytes: number,
+  maxBytes: number = MAX_FILE_BYTES,
+): string | null => {
   if (bytes <= 0) return "文件是空的";
-  if (bytes > MAX_FILE_BYTES) return `超过 ${MAX_FILE_BYTES / 1024 / 1024}MB`;
+  if (bytes > maxBytes) return `超过 ${maxBytes / 1024 / 1024}MB`;
   if (classify(name) !== null) return null;
   const e = extOf(name);
   if (["zip", "rar", "7z", "tar", "gz"].includes(e)) return "暂不支持压缩包，请把文件分别上传";

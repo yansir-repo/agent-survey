@@ -12,6 +12,7 @@
 export GRILL_ADMIN_TOKEN=…        # 或放进 data/prod-secrets.json / .dev.vars 的 ADMIN_TOKEN（都不入库）
 node scripts/invite.ts guide                                              # 先读说明书
 node scripts/invite.ts create --code acme-2026 --brief-file brief.md      # 得到客户链接（只发给这位客户）
+node scripts/invite.ts create --code acme-2026 --brief-file brief.md --material 画册.pdf --url https://客户官网 --ours 竞品调研.md   # 预置资料：--material/--url 是客户提供的，--ours 是我们做的调研
 node scripts/invite.ts wait --code acme-2026                              # 等到访谈结束，打印 phase / summary / context
 node scripts/invite.ts result --code acme-2026 --out CONTEXT.md           # 随时取结果；没结束时 context 只是草稿
 ```

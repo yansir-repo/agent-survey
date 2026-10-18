@@ -19,7 +19,9 @@ import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } 
 import { Effect, Layer, Schema } from "effect";
 import { Clef, ClefLive } from "./clef.ts";
 import type { InterviewView } from "../shared/api.ts";
+import { describeCall, pushActivity } from "../shared/activity.ts";
 import { liveView } from "../shared/live.ts";
+import type { ProvidedUrl } from "../shared/provided.ts";
 import { DEFAULT_MODEL, MODELS } from "../shared/models.ts";
 import { CONTEXT_PATH, systemPrompt } from "../shared/prompt.ts";
 import { AskRound, CheckpointInput } from "../shared/questions.ts";
@@ -35,6 +37,7 @@ import {
   finishInterview,
   onTurnEnded,
   putFile,
+  addUrls,
   outcome,
   r2Keys,
   readWorkspace,
@@ -44,6 +47,7 @@ import {
   saveAnswer,
   saveNote,
   snapshot,
+  start,
   submit,
   takenPaths,
   view,
@@ -212,6 +216,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
     this.liveReasoning = "";
     this.liveArgs = "";
     this.liveTool = null;
+    this.liveActivity = [];
     return this.run(beforeTurnContext).then(({ mission, brief }) => ({
       instructions: systemPrompt(mission, brief),
       stopWhen: () => this.hasOutcome(),
@@ -254,10 +259,13 @@ export class Interviewer extends Think<Cloudflare.Env> {
   private liveReasoning = "";
   private liveArgs = "";
   private liveTool: string | null = null;
+  private liveActivity: ReadonlyArray<string> = [];
 
   override onChunk(ctx: ChunkContext): void {
     const c = ctx.chunk;
     if (c.type === "reasoning-delta") this.liveReasoning += c.text;
+    else if (c.type === "tool-call")
+      this.liveActivity = pushActivity(this.liveActivity, describeCall(c.toolName, c.input));
     else if (c.type === "tool-input-start") {
       this.liveTool = c.toolName;
       if (c.toolName === "ask_round") this.liveArgs = "";
@@ -271,13 +279,19 @@ export class Interviewer extends Think<Cloudflare.Env> {
 
   // ---- Worker 调用的方法（RPC）----
 
-  begin(brief: string, mission: string, model: string): Promise<void> {
-    return this.run(begin(brief, mission, model));
+  begin(brief: string, mission: string, model: string, start = true): Promise<void> {
+    return this.run(begin(brief, mission, model, start));
+  }
+  start(): Promise<void> {
+    return this.run(start);
+  }
+  addUrls(urls: ReadonlyArray<ProvidedUrl>): Promise<number> {
+    return this.run(addUrls(urls));
   }
   view(): Promise<InterviewView> {
     return this.run(view).then((v) =>
       v.phase === "thinking" && !v.error
-        ? { ...v, live: liveView(this.liveReasoning, this.liveArgs) }
+        ? { ...v, live: liveView(this.liveReasoning, this.liveArgs, this.liveActivity) }
         : v,
     );
   }

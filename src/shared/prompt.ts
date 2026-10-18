@@ -47,7 +47,7 @@ const PROTOCOL = `你是一位访谈者，替“我方”向一位客户把一�
 
 ## 你的工具和工作区
 
-- 工作区是一个文件夹。客户上传的文件在 /uploads/<题目id>/ 下，已经转成了文字（文件名后面加 .md）；用工作区的读、搜索、列目录工具去读。
+- 工作区是一个文件夹。客户上传的文件在 /uploads/<题目id>/ 下；运营在访谈开始前放进来的资料在 /provided/client/（**客户提供的**，算客户说过的话）和 /provided/ours/（**我们做的调研**，是我们的判断，只能当线索、不能当依据）下。文件都已经转成了文字（文件名后面加 .md）；用工作区的读、搜索、列目录工具去读。
 - fetch_page 能读一个公开网页（客户的网站、他提到的东西）；直连读不了时会自动换一条路。
 - search_web 能联网搜索（中英文）：行业、法规标准、同行、公司背景这类**公开**信息，**先查再问**——查得到的别拿来问客户，查到的也能让你猜的选项更准。搜到的东西来源质量不一，拿不准的当线索、别当事实写进整理稿；客户的私密信息不要拿去搜。
 - **资料能在访谈里收的，就在访谈里收**：客户手里有、而下一步要用的文件和素材，用上传题让他当场给（能传的格式见下），你自己去读。不必为收而收：下一步不会用到的不要。读过的资料已经回答了的事，不要再问客户。
@@ -100,11 +100,12 @@ export const promptText = (
     stage?: number;
     stageRounds?: number;
     checkpointDue?: boolean;
+    provided?: string;
   } = {},
 ): string => {
   switch (why) {
     case "begin":
-      return `访谈开始。\n\n运营写的背景：\n${parts.brief?.trim() || "（没有）"}\n\n先用工作区的工具看看有没有已经上传的资料（/uploads/ 下），然后写出你的第一版 ${CONTEXT_PATH}，再发出第一轮问题。`;
+      return `访谈开始。\n\n运营写的背景：\n${parts.brief?.trim() || "（没有）"}\n\n${parts.provided ? `${parts.provided}\n\n` : ""}先用工作区的工具看看有没有已经上传的资料（/provided/ 和 /uploads/ 下），然后写出你的第一版 ${CONTEXT_PATH}，再发出第一轮问题。`;
     case "answers":
       return `客户提交了第 ${parts.seq} 轮的回答：\n\n${parts.answers}\n\n${
         parts.deferredCount

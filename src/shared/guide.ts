@@ -3,6 +3,8 @@
  * 接口清单、字段、限制都只在这里写一次（index.ts 顶部的注释指向这里）；预设和模型的清单由调用方传进来（来自 PROFILES / MODELS），
  * 不在这里重复。令牌不在这里：它是凭证，放在运营的密钥文件里。
  */
+import { MAX_PROVIDED_BYTES } from "./provided.ts";
+
 export type GuideProfile = { readonly name: string; readonly title: string };
 export type GuideModel = {
   readonly name: string;
@@ -11,6 +13,7 @@ export type GuideModel = {
 };
 
 export const MAX_BRIEF_CHARS = 8000;
+const MAX_PROVIDED_MB = MAX_PROVIDED_BYTES / 1024 / 1024;
 
 export const guideText = (o: {
   readonly origin: string;
@@ -44,6 +47,8 @@ export const guideText = (o: {
 | \`GET /admin/interviews/<code>/result\` | **取结果**：phase、summary、context、unanswered、轮数（很小，轮询用它） |
 | \`GET /admin/interviews/<code>\` | 全部内容（所有轮次、答案、对话统计）——体积大，调试才用 |
 | \`GET /admin/interviews/<code>/file?path=/CONTEXT.md\` | 读访谈者工作区里的任一文件 |
+| \`POST /admin/interviews/<code>/materials\` | 预置资料：multipart（\`source\` + 多个 \`file\`）或 JSON \`{source, urls}\`，见下 |
+| \`POST /admin/interviews/<code>/start\` | 创建时给了 \`start: false\` 才需要：资料放完，让访谈者开始 |
 | \`POST /admin/interviews/<code>/rotate\` | 换 key，旧链接立刻失效 |
 | \`DELETE /admin/interviews/<code>\` | **不可恢复**：清空内容，code 永久作废 |
 | \`GET /admin/profiles\`、\`GET /admin/models\`、\`GET /admin/formats\` | 可选的预设、模型、客户能上传的格式 |
@@ -59,6 +64,8 @@ export const guideText = (o: {
 - \`brief\`（建议写）：这位客户的背景，最多 ${MAX_BRIEF_CHARS} 字。见下。
 - \`profile\`：任务预设，默认 \`${o.defaultProfile}\`。可选：${o.profiles.map((p) => `\`${p.name}\`（${p.title}）`).join("、")}。
 - \`mission\`：整段覆盖预设（自己写任务，≤ 12000 字）；\`append\`：在预设（或 \`mission\`）后面追加几句。
+- \`urls\`：预置网址 \`[{url, source}]\`（见下“预置资料”），最多 20 个，要过公网地址检查。
+- \`start\`：默认 true（立刻开始）；要先放文件就给 false，放完再调 \`/start\`——命令行的 \`--material\` 替你做了这三步。
 - \`model\`：访谈者用的模型，默认 \`${o.defaultModel}\`。线上可用：${
   o.models
     .filter((m) => m.available)
@@ -73,6 +80,18 @@ export const guideText = (o: {
 - 不要写问题、不要写你想要的答案、不要写价格或合同金额之类敏感信息（访谈者会照着它和客户说话，客户也能在页面上看到访谈者整理的理解）。
 - 不确定的事实写明“未确认”，访谈者会去问。
 - 一两百字就够；写长了也行，但它读的是**事实**，不是要求。
+
+## 预置资料：开问之前先给访谈者读的东西
+
+\`brief\` 超过 ${MAX_BRIEF_CHARS} 字会被拒，提示改成文档：**文档不限长度**（单个文件上限 ${MAX_PROVIDED_MB}MB，是平台的天花板，不是业务规则），会转成文字放进访谈者的工作区。
+
+每份资料有**出处**，决定它能算什么：
+- \`source: client\`——**客户提供的**（画册、报价单、他给的网址）。里面的话算客户说过的话，访谈者可以拿它当 confirm 选项的依据。
+- \`source: ours\`——**我们做的调研**（行业、竞品）。是我们的判断，不是客户说的：只能当线索（帮访谈者猜选项），不能当依据，也不会被写成“客户说”。
+
+客户在页面顶栏的“资料”里看得到全部（出处标明、可点开读转成文字的内容），所以**别放不想让客户看到的东西**。访谈者读资料期间，客户页面会显示它在读什么，不会是一片空白。
+
+命令行：\`node scripts/invite.ts create --code C --brief-file b.md --material 画册.pdf --url https://客户官网 --ours 竞品调研.md\`。
 
 ## 结果：\`GET /admin/interviews/<code>/result\`
 

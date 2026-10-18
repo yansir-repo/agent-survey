@@ -3,7 +3,8 @@
  * 转 Markdown → 访谈者把文字放进工作区、把记录写进 files 表。守不过的文件不会半收：要么整条链走完，要么原样退回并说明原因。
  */
 import { Effect } from "effect";
-import { acceptsKind, mimeOf, rejectReason, uniquePath } from "../shared/files.ts";
+import { acceptsKind, MAX_FILE_BYTES, mimeOf, rejectReason, uniquePath } from "../shared/files.ts";
+import { MAX_PROVIDED_BYTES, providedDir, providedQid, type Source } from "../shared/provided.ts";
 import { MAX_FILES_DEFAULT, uploadDir, type Question } from "../shared/questions.ts";
 import { convertFile } from "./convert.ts";
 import type { Interviewer } from "./interviewer.ts";
@@ -18,23 +19,50 @@ export type FileResult = {
   readonly size?: number;
 };
 
+/** 文件往哪放、收什么、收多少、多大：客户在某道题上传 vs 运营预置资料，是同一条流水线的两种目标。 */
+export type Target = {
+  readonly qid: string;
+  readonly dir: string;
+  readonly maxBytes: number;
+  /** 还能收几个；null = 不限。 */
+  readonly max: number | null;
+  /** 收不收这个文件名：不收就是原因，收就是 null。 */
+  readonly refuse: (name: string) => string | null;
+};
+
+export const questionTarget = (q: Extract<Question, { kind: "image" | "file" }>): Target => ({
+  qid: q.id,
+  dir: uploadDir(q.id),
+  maxBytes: MAX_FILE_BYTES,
+  max: q.max ?? MAX_FILES_DEFAULT,
+  refuse: (name) => (acceptsKind(q.kind, name) ? null : "这道题只收图片"),
+});
+
+/** 运营预置资料：文档、文本、图片都收，数量不限，单个文件的上限是平台的天花板（见 MAX_PROVIDED_BYTES）。 */
+export const providedTarget = (source: Source): Target => ({
+  qid: providedQid(source),
+  dir: providedDir(source),
+  maxBytes: MAX_PROVIDED_BYTES,
+  max: null,
+  refuse: () => null,
+});
+
 export const ingest = (
   env: Cloudflare.Env,
   stub: DurableObjectStub<Interviewer>,
   code: string,
-  q: Extract<Question, { kind: "image" | "file" }>,
+  target: Target,
   files: ReadonlyArray<File>,
 ): Effect.Effect<FileResult[]> =>
   Effect.gen(function* () {
     const taken = new Set(yield* Effect.promise(() => stub.takenPaths()));
-    const have = [...taken].filter((p) => p.startsWith(uploadDir(q.id))).length;
-    const room = (q.max ?? MAX_FILES_DEFAULT) - have;
+    const have = [...taken].filter((p) => p.startsWith(target.dir)).length;
+    const room = target.max === null ? Infinity : target.max - have;
     const out: FileResult[] = [];
     let added = 0;
     for (const file of files) {
       const refuse =
-        rejectReason(file.name, file.size) ??
-        (acceptsKind(q.kind, file.name) ? null : "这道题只收图片");
+        rejectReason(file.name, file.size, target.maxBytes) ?? target.refuse(file.name);
       if (refuse) {
         out.push({ name: file.name, ok: false, error: refuse });
         continue;
@@ -43,11 +71,11 @@ export const ingest = (
         out.push({
           name: file.name,
           ok: false,
-          error: `这道题最多 ${q.max ?? MAX_FILES_DEFAULT} 个文件`,
+          error: `这里最多 ${target.max ?? 0} 个文件`,
         });
         continue;
       }
-      const path = uniquePath(uploadDir(q.id), file.name, taken);
+      const path = uniquePath(target.dir, file.name, taken);
       taken.add(path);
       const bytes = yield* Effect.promise(() => file.arrayBuffer());
       const r2Key = `${code}/${path}`;
@@ -60,7 +88,7 @@ export const ingest = (
         stub.putFile(
           {
             path,
-            qid: q.id,
+            qid: target.qid,
             name: file.name,
             size: file.size,
             mime,

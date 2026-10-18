@@ -17,10 +17,13 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
 import { DEFAULT_MODEL, MODELS, resolveModel } from "../shared/models.ts";
+import { markdownPath } from "../shared/files.ts";
 import { guideText } from "../shared/guide.ts";
+import { isSource, sourceOfQid } from "../shared/provided.ts";
+import { parseProvidedUrls } from "../shared/provided-urls.ts";
 import { CONTEXT_PATH } from "../shared/prompt.ts";
 import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
-import { ingest } from "./upload.ts";
+import { ingest, providedTarget, questionTarget } from "./upload.ts";
 import {
   InterviewExists,
   InterviewRetired,
@@ -109,6 +112,15 @@ const clientRoute = (db: D1Like) =>
         const r = yield* rpc(() => stub.submit(submit[1]!));
         return json(r, r.ok ? 200 : 422);
       }
+      // 客户看得到运营预置的资料（转成文字的那份）：只限 provided/ 下的文件
+      if (rest === "/api/provided/file" && method === "GET") {
+        const path = url.searchParams.get("path") ?? "";
+        const view = yield* rpc(() => stub.view());
+        const f = view.files.find((x) => x.path === path && sourceOfQid(x.qid) !== null);
+        if (!f) return json({ ok: false, error: "没有这份资料" }, 404);
+        const text = yield* rpc(() => stub.readWorkspace(`/${markdownPath(f.path)}`));
+        return json({ ok: true, name: f.name, text: text ?? "", status: f.status });
+      }
       // 客户看得到 agent 写的 CONTEXT.md（它眼里的“我对你的理解”），也可以下载
       if (rest === "/api/context" && method === "GET") {
         const text = (yield* rpc(() => stub.readWorkspace(CONTEXT_PATH))) ?? "";
@@ -136,7 +148,7 @@ const clientRoute = (db: D1Like) =>
         if (form === null) return json({ ok: false, error: "上传的内容读不出来" }, 400);
         const files = form.getAll("file").filter((f): f is File => typeof f !== "string");
         if (files.length === 0) return json({ ok: false, error: "没有收到文件" }, 400);
-        const results = yield* ingest(env, stub, parts.code, q, files);
+        const results = yield* ingest(env, stub, parts.code, questionTarget(q), files);
         return json({ ok: true, results });
       }
       if (rest === "/api/files" && method === "DELETE") {
@@ -218,7 +230,13 @@ const adminRoute = (db: D1Like) =>
               : yield* Effect.die(e);
         }
         const i = made.success;
-        yield* rpc(() => stubOf(i.code).begin(i.brief, i.mission, i.model));
+        const pre = parseProvidedUrls(body["urls"]);
+        if (!pre.ok) return json({ ok: false, error: pre.error }, 422);
+        if (pre.urls.length > 0) yield* rpc(() => stubOf(i.code).addUrls(pre.urls));
+        // start: false = 先建好，等 materials 放完再 POST …/start（命令行的 --material 就是这么走的）
+        yield* rpc(() =>
+          stubOf(i.code).begin(i.brief, i.mission, i.model, body["start"] !== false),
+        );
         return json(
           {
             ok: true,
@@ -271,7 +289,10 @@ const adminRoute = (db: D1Like) =>
         );
         return json({ interviews: rows });
       }
-      const one = /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result)?$/.exec(path);
+      const one =
+        /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result|\/materials|\/start)?$/.exec(
+          path,
+        );
       if (one) {
         const code = normalizeCode(one[1]!);
         if (one[2] === "/rotate" && method === "POST") {
@@ -292,6 +313,39 @@ const adminRoute = (db: D1Like) =>
           if (keys.length > 0) yield* Effect.promise(() => env.FILES.delete(keys)); // R2 拒绝空数组
           yield* retire(code).pipe(provide, Effect.orDie);
           return json({ ok: true, removedFiles: keys.length });
+        }
+        if (one[2] === "/start" && method === "POST") {
+          yield* rpc(() => stubOf(code).start());
+          return json({ ok: true });
+        }
+        if (one[2] === "/materials" && method === "POST") {
+          const ctype = request.headers["content-type"] ?? "";
+          if (ctype.includes("application/json")) {
+            const body = asRecord(yield* readJson(request));
+            const src = str(body["source"]);
+            if (!isSource(src))
+              return json({ ok: false, error: "source 要写 client 或 ours" }, 422);
+            const parsed = parseProvidedUrls(
+              (Array.isArray(body["urls"]) ? body["urls"] : []).map((u) => ({
+                url: u,
+                source: src,
+              })),
+            );
+            if (!parsed.ok) return json({ ok: false, error: parsed.error }, 422);
+            const total = yield* rpc(() => stubOf(code).addUrls(parsed.urls));
+            return json({ ok: true, urls: total });
+          }
+          const web = yield* HttpServerRequest.toWeb(request).pipe(Effect.orDie);
+          const form = yield* Effect.promise(() => web.formData()).pipe(
+            Effect.orElseSucceed(() => null),
+          );
+          if (form === null) return json({ ok: false, error: "上传的内容读不出来" }, 400);
+          const src = form.get("source");
+          if (!isSource(src)) return json({ ok: false, error: "source 要写 client 或 ours" }, 422);
+          const files = form.getAll("file").filter((f): f is File => typeof f !== "string");
+          if (files.length === 0) return json({ ok: false, error: "没有收到文件" }, 400);
+          const results = yield* ingest(env, stubOf(code), code, providedTarget(src), files);
+          return json({ ok: results.some((r) => r.ok), results });
         }
         if (one[2] === "/result" && method === "GET")
           return json({ ok: true, code, ...(yield* rpc(() => stubOf(code).outcome())) });

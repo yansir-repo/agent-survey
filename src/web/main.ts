@@ -14,6 +14,7 @@ import {
   type Value,
 } from "../shared/questions.ts";
 import { markdownToHtml } from "../shared/md.ts";
+import { SOURCE_LABEL, sourceOfQid, type Source } from "../shared/provided.ts";
 import { richText, sanitizeRich } from "../shared/rich.ts";
 
 const KIND_NAME: Record<Question["kind"], string> = {
@@ -187,11 +188,20 @@ const renderThinking = (app: HTMLElement, v: InterviewView): void => {
     () =>
       `<div class="q skel"><span class="sk title"></span><div><span class="sk pill w1"></span><span class="sk pill w2"></span><span class="sk pill w3"></span></div></div>`,
   ).join("");
-  const head = v.history.length ? "正在消化你的回答，想下一组问题……" : "正在准备第一组问题……";
+  const hasProvided = v.files.some((f) => sourceOfQid(f.qid) !== null) || v.providedUrls.length > 0;
+  const head = v.preparing
+    ? "运营正在放进资料，马上开始……"
+    : v.history.length
+      ? "正在消化你的回答，想下一组问题……"
+      : hasProvided
+        ? "正在阅读运营放进来的资料，然后出第一组问题……"
+        : "正在准备第一组问题……";
+  const activity = live?.activity ?? [];
   const prev = app.querySelector<HTMLElement>(".live-reasoning");
   const stick = !prev || prev.scrollTop + prev.clientHeight >= prev.scrollHeight - 8;
   app.innerHTML = `<div class="wrap"><main class="live">
     <div class="thinking left"><div class="spin"></div>${head}</div>
+    ${activity.length ? `<ul class="activity">${activity.map((a, i) => `<li class="${i === activity.length - 1 ? "now" : "done"}">${esc(a)}</li>`).join("")}</ul>` : ""}
     ${live?.intro ? `<p class="lead">${esc(live.intro)}</p>` : ""}
     ${live?.reasoning ? `<details class="reasoning" open><summary>它在想什么</summary><pre class="live-reasoning">${esc(live.reasoning.replace(/\n{2,}/g, "\n"))}</pre></details>` : ""}
     ${cards}${fillers}
@@ -208,6 +218,12 @@ const render = (): void => {
     return;
   }
   const v = view;
+  const providedN =
+    v.files.filter((f) => sourceOfQid(f.qid) !== null).length + v.providedUrls.length;
+  const pb = $<HTMLButtonElement>("#providedBtn");
+  if (pb) pb.hidden = providedN === 0;
+  const pc = $("#providedCount");
+  if (pc) pc.textContent = String(providedN);
   const badge = $("#deferredCount");
   if (badge) badge.textContent = String(v.deferred.length);
   if (v.phase === "thinking") {
@@ -432,6 +448,8 @@ document.addEventListener("click", (e) => {
   const d = el.dataset;
   if (d["act"] === "wrong") return toast("可以直接告诉我们哪里不对，我们会改");
   if (d["act"] === "context") return void openContext();
+  if (d["act"] === "pfile") return void openProvidedFile(d["path"] ?? "");
+  if (d["act"] === "pback") return openProvided();
   if (d["act"] === "resume") return void request("POST", "/resume").then(refresh);
   if (d["act"] === "submit") return void submit();
   if (d["pick"]) {
@@ -715,6 +733,50 @@ const openContext = async (): Promise<void> => {
         : `<p>agent 还没有开始整理。它边问边写，过一阵再点开看。</p>`;
 };
 $("#contextBtn")?.addEventListener("click", () => void openContext());
+
+/** 运营预先放进来的资料：按出处分组，点开能看转成文字的内容。 */
+const openProvided = (): void => {
+  const v = view;
+  const group = (s: Source): string => {
+    const fs = (v?.files ?? []).filter((f) => sourceOfQid(f.qid) === s);
+    const us = (v?.providedUrls ?? []).filter((u) => u.source === s);
+    if (fs.length === 0 && us.length === 0) return "";
+    return `<h3 class="pgroup">${esc(SOURCE_LABEL[s])}</h3>${[
+      ...fs.map(
+        (f) =>
+          `<div class="row"><button class="linklike" data-act="pfile" data-path="${esc(f.path)}">${esc(f.name)}</button>${f.status === "ok" ? "" : `<div class="why">没能转成文字</div>`}</div>`,
+      ),
+      ...us.map(
+        (u) =>
+          `<div class="row"><a href="${esc(u.url)}" target="_blank" rel="noopener noreferrer">${esc(u.url)}</a></div>`,
+      ),
+    ].join("")}`;
+  };
+  $("#drawer")!.classList.remove("wide");
+  $("#drawer")!.innerHTML =
+    `<button class="pill-btn close" data-close>关闭</button><h2>运营放进来的资料</h2>
+    <div class="why" style="color:var(--mute)">访谈者开始提问前会先读这些。“我们做的调研”是我们的判断，不是你说的；哪里不对，在每一轮底部的“还有想补充的”里告诉我们。</div>
+    ${group("client")}${group("ours")}`;
+  $("#mask")!.classList.add("open");
+};
+const openProvidedFile = async (path: string): Promise<void> => {
+  $("#drawer")!.classList.add("wide");
+  $("#drawer")!.innerHTML =
+    `<button class="pill-btn close" data-close>关闭</button><button class="pill-btn" data-act="pback">← 资料列表</button><h2 id="pname">加载中……</h2><div class="md" id="mdBody"></div>`;
+  const { status, data } = await request<{ name: string; text: string; status: string }>(
+    "GET",
+    `/provided/file?path=${encodeURIComponent(path)}`,
+  );
+  const name = $("#pname");
+  const body = $("#mdBody");
+  if (name) name.textContent = status === 200 ? data.name : "读不到";
+  if (body)
+    body.innerHTML =
+      status === 200 && data.text.trim() !== ""
+        ? markdownToHtml(data.text)
+        : `<p>这份资料没能转成文字，访谈者也读不到它的内容。</p>`;
+};
+$("#providedBtn")?.addEventListener("click", openProvided);
 
 $("#deferredBtn")?.addEventListener("click", () => {
   $("#drawer")!.classList.remove("wide");

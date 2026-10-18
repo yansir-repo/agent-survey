@@ -42,7 +42,9 @@
 - `GET /admin/interviews/<code>/result`：`{phase, rounds, summary, context, unanswered}`，很小，轮询用；`GET /admin/interviews/<code>`（整份快照，约 75 KB）只在调试时用。
 - 创建同一个 code：409 并带 `existing.url`；删除过的 code 永久作废（`retired: true`），因为 code 是 Durable Object 的名字。删除要先确认访谈存在，再清 DO 和 R2。
 - 命令行 `scripts/invite.ts`（`vp run invite` 登记，不在门禁里：要连线上、要运营令牌）：`create|list|result|wait|rotate|delete|guide|profiles|models`，输出 JSON；`delete` 必须 `--yes`；`wait` 退出码 3 = 超时。
-- **还没做（等商量）**：预置资料（运营侧给访谈者预先放文档）；完成通知/webhook（现在靠 `wait` 轮询）。
+- **预置资料**（`src/shared/provided.ts`、`provided-urls.ts`、`upload.ts` 的 `Target`）：访谈开始前运营放进访谈者工作区的文件和网址，**出处只有两种、由存放目录决定**：`provided/client/`（客户提供的：算客户说过的话，进 `clientWords`，可作 `confirm` 的 basis）和 `provided/ours/`（我们做的调研：只能当线索猜选项，不能当依据，也不进 `clientWords`）。客户在页面“资料”里看得到全部（`GET …/api/provided/file`，只限 provided 的文件）。同一条上传流水线（`ingest`）服务两种目标（客户在题上传 vs 运营预置），差别只在 `Target`：目录、数量、单文件上限（客户 20MB；预置 50MB——平台天花板：请求体 100MB、内存 128MB，更大的以后走直传 R2）。`brief` 超 8000 字就报错并指向 materials（文档不限长度）。创建时 `start: false` + `POST …/materials` + `POST …/start` 让访谈者在资料齐了之后才开始；`deferred.start` 这个 kv 在，客户页就显示“运营正在放进资料”。
+- **等待时的活动**：DO 的 `onChunk` 收 `tool-call`（`describeCall` 说成人话：读了哪份资料、打开了哪个网页、在整理笔记），`live.activity` 保留最近 6 条，客户页逐条显示——读几十页资料的那一分钟不是一片空白。
+- **还没做**：完成通知/webhook（现在靠 `wait` 轮询）；超过 50MB 的资料（直传 R2）。
 
 ## 客户看得到 CONTEXT.md
 
