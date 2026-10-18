@@ -12,7 +12,7 @@ const parsed = (s: string): { ok: true; value: unknown } | { ok: false } => {
 };
 
 /** 给半截 JSON 补上缺的引号和括号；末尾停在键或冒号上就往回退，直到能解析为止。 */
-export const completeJson = (partial: string): unknown | undefined => {
+export const completeJson = (partial: string): unknown => {
   let s = partial;
   for (let trim = 0; trim < 60 && s.length > 0; trim++) {
     const stack: string[] = [];
