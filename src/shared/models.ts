@@ -8,17 +8,27 @@ export type ModelSpec = {
   /** 提供商那边的模型 id。 */
   readonly id: string;
   readonly title: string;
-  /** DeepSeek 的推理模式：开了更慢更贵，规划（决定问什么）可能更好。 */
-  readonly thinking?: boolean;
+  /** DeepSeek 的推理强度；不写 = 关。开了更慢更贵，规划（决定问什么）可能更好。 */
+  readonly thinking?: "low" | "high";
 };
 
 export const MODELS: Readonly<Record<string, ModelSpec>> = {
-  "deepseek-flash": { provider: "deepseek", id: "deepseek-flash", title: "DeepSeek V4.1 Flash" },
+  "deepseek-flash": {
+    provider: "deepseek",
+    id: "deepseek-flash",
+    title: "DeepSeek V4.1 Flash（低推理）",
+    thinking: "low",
+  },
   "deepseek-flash-think": {
     provider: "deepseek",
     id: "deepseek-flash",
-    title: "DeepSeek V4.1 Flash（开推理）",
-    thinking: true,
+    title: "DeepSeek V4.1 Flash（高推理）",
+    thinking: "high",
+  },
+  "deepseek-flash-off": {
+    provider: "deepseek",
+    id: "deepseek-flash",
+    title: "DeepSeek V4.1 Flash（不推理）",
   },
   "claude-sonnet-5-5": {
     provider: "aihubmix",

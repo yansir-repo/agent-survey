@@ -150,6 +150,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
         transformRequestBody: (body) => ({
           ...body,
           thinking: { type: spec.thinking ? "enabled" : "disabled" },
+          ...(spec.thinking ? { reasoning_effort: spec.thinking } : {}),
         }),
       });
       return provider.chatModel(spec.id);
