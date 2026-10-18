@@ -172,16 +172,16 @@ const renderThinking = (app: HTMLElement, v: InterviewView): void => {
   const written = live?.questions ?? [];
   const cards = written
     .map(
-      (q) => `<div class="skel-card ready${q.writing ? " writing" : ""}">
+      (q) => `<div class="q skel ready${q.writing ? " writing" : ""}">
         <div class="skel-title">${esc(q.title)}</div>
-        ${q.options.length ? `<div class="skel-opts">${q.options.map((o) => `<span class="chip ghost">${esc(o)}</span>`).join("")}</div>` : ""}
+        ${q.options.length ? `<div class="opts">${q.options.map((o) => `<span class="opt ghost">${esc(o)}</span>`).join("")}</div>` : ""}
       </div>`,
     )
     .join("");
   const fillers = Array.from(
     { length: Math.max(0, 3 - written.length) },
     () =>
-      `<div class="skel-card"><div class="bar w70"></div><div class="bar w40"></div><div class="skel-opts"><span class="bar chipbar"></span><span class="bar chipbar"></span><span class="bar chipbar"></span></div></div>`,
+      `<div class="q skel"><span class="sk title"></span><div><span class="sk pill w1"></span><span class="sk pill w2"></span><span class="sk pill w3"></span></div></div>`,
   ).join("");
   const head = v.history.length ? "正在消化你的回答，想下一组问题……" : "正在准备第一组问题……";
   const prev = app.querySelector<HTMLElement>(".live-reasoning");
@@ -189,7 +189,7 @@ const renderThinking = (app: HTMLElement, v: InterviewView): void => {
   app.innerHTML = `<div class="wrap"><main class="live">
     <div class="thinking left"><div class="spin"></div>${head}</div>
     ${live?.intro ? `<p class="lead">${esc(live.intro)}</p>` : ""}
-    ${live?.reasoning ? `<details class="reasoning" open><summary>它在想什么</summary><pre class="live-reasoning">${esc(live.reasoning)}</pre></details>` : ""}
+    ${live?.reasoning ? `<details class="reasoning" open><summary>它在想什么</summary><pre class="live-reasoning">${esc(live.reasoning.replace(/\n{2,}/g, "\n"))}</pre></details>` : ""}
     ${cards}${fillers}
   </main></div>`;
   const box = app.querySelector<HTMLElement>(".live-reasoning");

@@ -752,94 +752,85 @@ ul.know {
   margin-top: 8px;
 }
 
-/* 等待界面：推理文字 + 题的骨架 */
+/* 等待界面：推理文字 + 题的骨架（骨架和真正的题卡同形：白底、同样的边、同样的选项形状） */
 main.live {
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
 .thinking.left {
   justify-content: flex-start;
-  padding: 24px 0 4px;
+  padding: 24px 0 14px;
 }
 .reasoning {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 12px;
+  margin: 0 0 18px;
+  padding-left: 14px;
+  border-left: 3px solid var(--accent-soft);
   color: var(--mute);
   font-size: 13px;
 }
 .reasoning summary {
   cursor: pointer;
   user-select: none;
+  font-size: 12px;
+  letter-spacing: 0.04em;
 }
 .live-reasoning {
-  margin: 8px 0 0;
-  max-height: 160px;
+  margin: 6px 0 0;
+  max-height: 84px;
   overflow-y: auto;
   white-space: pre-wrap;
   font: inherit;
   line-height: 1.6;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
 }
-.skel-card {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.q.skel {
+  pointer-events: none;
 }
-.skel-card.ready {
-  animation: skel-in 0.25s ease-out;
+.skel-title {
+  font-weight: 600;
+  margin-bottom: 12px;
 }
-.skel-card.writing .skel-title::after {
+.q.skel.writing .skel-title::after {
   content: "▍";
   color: var(--accent);
   animation: blink 1s steps(2) infinite;
 }
-.skel-title {
-  font-weight: 600;
-}
-.skel-opts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.chip.ghost {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 12px;
+.opt.ghost {
   color: var(--mute);
-  font-size: 14px;
+  cursor: default;
 }
-.bar {
+.sk {
   display: block;
   height: 14px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, var(--line) 25%, rgba(0, 0, 0, 0.04) 50%, var(--line) 75%);
+  border-radius: 7px;
+  background: linear-gradient(90deg, #ece7db 25%, #f7f4ec 50%, #ece7db 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
-.bar.w70 {
-  width: 70%;
+.sk.title {
+  width: 62%;
+  height: 16px;
+  margin-bottom: 14px;
 }
-.bar.w40 {
-  width: 40%;
+.sk.pill {
+  display: inline-block;
+  height: 36px;
+  border-radius: 10px;
+  margin-right: 8px;
 }
-.bar.chipbar {
-  width: 88px;
-  height: 28px;
-  border-radius: 999px;
+.sk.pill.w1 {
+  width: 120px;
+}
+.sk.pill.w2 {
+  width: 168px;
+}
+.sk.pill.w3 {
+  width: 92px;
 }
 @keyframes shimmer {
   to {
     background-position: -200% 0;
-  }
-}
-@keyframes skel-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
   }
 }
 @keyframes blink {
