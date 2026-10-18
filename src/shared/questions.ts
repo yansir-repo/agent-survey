@@ -260,11 +260,15 @@ export const parseAskRound = (
  * 检查点：每满一个阶段，agent 把“我这一阶段听到的要点”交给客户逐条确认。要点是它的工具入参，
  * 题目由系统生成（agent 不能在检查点里夹带别的题）：每条一道选填的单选——对 / 不确定 / 不对，应该是…（客户自己写）。
  */
+export const MIN_CLAIMS = 3;
+export const MAX_CLAIMS = 8;
+/** 要点是选项的说明行（hint ≤ 120 字）。 */
+export const CLAIM_MAX = 120;
 export const CheckpointInput = Schema.Struct({
   intro: Short(400),
-  items: Schema.Array(Schema.Struct({ topic: Short(40), claim: Short(250) })).check(
-    Schema.isMinLength(3),
-    Schema.isMaxLength(14),
+  items: Schema.Array(Schema.Struct({ topic: Short(40), claim: Short(CLAIM_MAX) })).check(
+    Schema.isMinLength(MIN_CLAIMS),
+    Schema.isMaxLength(MAX_CLAIMS),
   ),
 });
 export type CheckpointInput = typeof CheckpointInput.Type;
@@ -286,15 +290,18 @@ export const parseCheckpoint = (
   return {
     ok: true,
     intro: r.success.intro,
-    questions: r.success.items.map((it, i): Question => ({
-      kind: "single",
-      id: `cp${stage + 1}-${i + 1}`,
-      title: `${it.topic}：${it.claim}`,
-      why: "我这一阶段听到的是这样——对不对？",
-      optional: true,
-      otherLabel: "不对，应该是…",
-      options: [{ label: "对" }, { label: "不确定" }],
-    })),
+    // 一道多选：勾出“不对的”，什么都不勾 = 全都对。比逐条点“对”轻得多（实测：12 条逐条确认，客户只点了 1 条）。
+    questions: [
+      {
+        kind: "multi",
+        id: `cp${stage + 1}`,
+        title: "下面这几条里，有哪几条不对？",
+        why: "这是我这一阶段听到的。没有不对的就不用勾，直接提交。",
+        optional: true,
+        otherLabel: "还有别的不对 / 想补充（自己写）",
+        options: r.success.items.map((it) => ({ label: it.topic, hint: it.claim })),
+      },
+    ],
   };
 };
 

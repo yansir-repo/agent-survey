@@ -13,6 +13,7 @@ import {
   type Question,
   type Value,
 } from "../shared/questions.ts";
+import { markdownToHtml } from "../shared/md.ts";
 import { richText, sanitizeRich } from "../shared/rich.ts";
 
 const KIND_NAME: Record<Question["kind"], string> = {
@@ -217,6 +218,7 @@ const render = (): void => {
   if (v.phase === "done") {
     app.innerHTML = `<div class="center"><h1>访谈完成，谢谢 🎉</h1>
       <p class="lead">我们已经把需要的都搞懂了，接下来会整理成项目资料，然后进入“规划结构”。</p>
+      <p><button class="pill-btn" data-act="context">查看 agent 整理的完整理解</button></p>
       ${v.understanding.length ? `<div class="summary"><h3>我的理解</h3><ul>${v.understanding.map((u) => `<li><b>${esc(u.topic)}：</b>${esc(u.text)}</li>`).join("")}</ul></div>` : ""}
       ${v.unanswered.length ? `<div class="summary"><h3>仍待确认（你没答的，我们不会替你编；之后会再向你确认）</h3><ul>${v.unanswered.map((q) => `<li>${esc(q.title)}</li>`).join("")}</ul></div>` : ""}</div>`;
     return;
@@ -426,6 +428,7 @@ document.addEventListener("click", (e) => {
   if (!el) return;
   const d = el.dataset;
   if (d["act"] === "wrong") return toast("可以直接告诉我们哪里不对，我们会改");
+  if (d["act"] === "context") return void openContext();
   if (d["act"] === "resume") return void request("POST", "/resume").then(refresh);
   if (d["act"] === "submit") return void submit();
   if (d["pick"]) {
@@ -692,7 +695,26 @@ const toast = (m: string): void => {
   toastTimer = window.setTimeout(() => t.classList.remove("show"), 1800);
 };
 
+/** agent 写的 CONTEXT.md：客户随时能看它现在的理解，哪里不对就在每轮底部的补充框里说。 */
+const openContext = async (): Promise<void> => {
+  $("#drawer")!.innerHTML =
+    `<button class="pill-btn close" data-close>关闭</button><h2>agent 现在的理解</h2>
+    <div class="why" style="color:var(--mute)">这是它的工作笔记，随访谈一路更新。哪里不对，在每一轮底部的“还有想补充的”里告诉它就行。 <a href="${esc(base)}/api/context?download=1">下载 .md</a></div>
+    <div class="md" id="mdBody">加载中……</div>`;
+  $("#drawer")!.classList.add("wide");
+  $("#mask")!.classList.add("open");
+  const { status, data } = await request<{ text: string }>("GET", "/api/context");
+  const body = $("#mdBody");
+  if (body)
+    body.innerHTML =
+      status === 200 && data.text.trim() !== ""
+        ? markdownToHtml(data.text)
+        : `<p>它还没有写下什么——问完第一轮之后就会有。</p>`;
+};
+$("#contextBtn")?.addEventListener("click", () => void openContext());
+
 $("#deferredBtn")?.addEventListener("click", () => {
+  $("#drawer")!.classList.remove("wide");
   const list = view?.deferred ?? [];
   $("#drawer")!.innerHTML =
     `<button class="pill-btn close" data-close>关闭</button><h2>稍后再答</h2>

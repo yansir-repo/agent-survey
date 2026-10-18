@@ -254,22 +254,15 @@ describe("checkpoint: the agent supplies the claims, the system builds the quest
     { topic: "证据", claim: "CE 证书是你最有分量的证明" },
   ];
 
-  it("each claim becomes one optional single-choice: 对 / 不确定 / (自己写) 不对，应该是…", () => {
+  it("all claims become ONE optional multi-choice: tick what is wrong, tick nothing = all right", () => {
     const r = parseCheckpoint({ intro: "这一阶段我听到：", items }, 0);
     expect(r.ok).toBe(true);
     const qs = r.ok ? r.questions : [];
-    expect(qs).toHaveLength(3);
-    expect(qs[0]).toMatchObject({
-      kind: "single",
-      id: "cp1-1",
-      optional: true,
-      otherLabel: "不对，应该是…",
-    });
-    expect(qs[0]!.kind === "single" ? qs[0]!.options.map((o) => o.label) : []).toEqual([
-      "对",
-      "不确定",
-    ]);
-    expect(qs[0]!.title).toContain("主要是欧洲的进口商");
+    expect(qs).toHaveLength(1);
+    expect(qs[0]).toMatchObject({ kind: "multi", id: "cp1", optional: true });
+    const opts = qs[0]!.kind === "multi" ? qs[0]!.options : [];
+    expect(opts.map((o) => o.label)).toEqual(["访客", "动作", "证据"]);
+    expect(opts[0]!.hint).toBe("主要是欧洲的进口商");
   });
 
   it("ids are tied to the stage so a later checkpoint never collides with an earlier one", () => {
@@ -281,18 +274,18 @@ describe("checkpoint: the agent supplies the claims, the system builds the quest
   it("too few or too many claims, extra keys: refused (the agent cannot smuggle other questions in)", () => {
     expect(parseCheckpoint({ intro: "i", items: items.slice(0, 2) }, 0).ok).toBe(false);
     expect(
-      parseCheckpoint({ intro: "i", items: Array.from({ length: 15 }, () => items[0]) }, 0).ok,
+      parseCheckpoint({ intro: "i", items: Array.from({ length: 9 }, () => items[0]) }, 0).ok,
     ).toBe(false);
     expect(parseCheckpoint({ intro: "i", items, questions: [] }, 0).ok).toBe(false);
   });
 
-  it("a customer's correction is accepted as a written answer to that claim", () => {
+  it("ticking nothing is fine; the customer's own correction is accepted as a written answer", () => {
     const r = parseCheckpoint({ intro: "i", items }, 0);
     const q0 = r.ok ? r.questions[0]! : (undefined as never);
-    expect(validateAnswer(q0, "对")).toEqual({ ok: true, value: "对" });
-    expect(validateAnswer(q0, "其他：其实主要是中东")).toEqual({
+    expect(validateAnswer(q0, ["访客"])).toEqual({ ok: true, value: ["访客"] });
+    expect(validateAnswer(q0, ["其他：其实主要是中东"])).toEqual({
       ok: true,
-      value: "其他：其实主要是中东",
+      value: ["其他：其实主要是中东"],
     });
   });
 });

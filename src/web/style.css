@@ -838,3 +838,86 @@ main.live {
     opacity: 0;
   }
 }
+
+/* CONTEXT.md 抽屉 */
+.drawer.wide {
+  width: min(760px, 96vw);
+}
+.md {
+  margin-top: 14px;
+  line-height: 1.7;
+}
+.md h2,
+.md h3,
+.md h4,
+.md h5 {
+  margin: 22px 0 6px;
+  line-height: 1.35;
+}
+.md h2 {
+  font-size: 20px;
+}
+.md h3 {
+  font-size: 16px;
+}
+.md h4,
+.md h5 {
+  font-size: 14px;
+}
+.md p {
+  margin: 8px 0;
+}
+.md ul,
+.md ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.md li.sub {
+  margin-left: 18px;
+}
+.md blockquote {
+  margin: 10px 0;
+  padding: 6px 14px;
+  border-left: 3px solid var(--accent-soft);
+  color: var(--mute);
+}
+.md code {
+  background: #efe9dc;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 13px;
+}
+.md pre {
+  background: #efe9dc;
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow: auto;
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 18px 0;
+}
+.md .md-table {
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 13px;
+  width: 100%;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  background: #f1ece0;
+}
+.drawer a,
+.md a {
+  color: var(--accent);
+}

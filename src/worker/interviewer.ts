@@ -205,7 +205,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
         execute: (raw) => this.run(askRound(raw)),
       }),
       checkpoint: tool({
-        description: `阶段检查点（系统通知你时才能调用）：先重写整理 ${CONTEXT_PATH}，再把这一阶段你听到的要点（6–12 条，每条一句客户能一眼判断对不对的话）交给客户逐条确认。成功后本回合结束。`,
+        description: `阶段检查点（系统通知你时才能调用）：先重写整理 ${CONTEXT_PATH}，再把这一阶段你听到的要点（3–8 条，每条一个标题加一句客户能一眼判断对不对的话）交给客户，他勾出不对的。成功后本回合结束。`,
         inputSchema: jsonSchema<unknown>(jsonOf(CheckpointInput)),
         execute: (raw) => this.run(checkpoint(raw)),
       }),

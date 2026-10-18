@@ -21,6 +21,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
 import { MODELS, resolveModel } from "../shared/models.ts";
+import { CONTEXT_PATH } from "../shared/prompt.ts";
 import { Clef, ClefLive } from "./clef.ts";
 import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
 import { ingest } from "./upload.ts";
@@ -109,6 +110,16 @@ const clientRoute = (db: D1Like) =>
       if (submit && method === "POST") {
         const r = yield* rpc(() => stub.submit(submit[1]!));
         return json(r, r.ok ? 200 : 422);
+      }
+      // 客户看得到 agent 写的 CONTEXT.md（它眼里的“我对你的理解”），也可以下载
+      if (rest === "/api/context" && method === "GET") {
+        const text = (yield* rpc(() => stub.readWorkspace(CONTEXT_PATH))) ?? "";
+        return url.searchParams.has("download")
+          ? HttpServerResponse.text(text, {
+              contentType: "text/markdown; charset=utf-8",
+              headers: { "content-disposition": `attachment; filename="CONTEXT-${parts.code}.md"` },
+            })
+          : json({ ok: true, text });
       }
       if (rest === "/api/resume" && method === "POST") {
         const r = yield* rpc(() => stub.resume());

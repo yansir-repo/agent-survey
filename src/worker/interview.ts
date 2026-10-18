@@ -33,7 +33,7 @@ import {
   type Question,
   type Value,
 } from "../shared/questions.ts";
-import { readTitle, titleProblems, titleRequest } from "../shared/clef-gates.ts";
+import { compoundProblems, readCompound, titleRequest } from "../shared/clef-gates.ts";
 import { answersMarkdown, type Answered } from "../shared/render.ts";
 import { checkPublicUrl } from "../shared/url-guard.ts";
 import { htmlToMarkdown } from "./convert.ts";
@@ -246,7 +246,7 @@ const clefProblems = (questions: ReadonlyArray<Question>) =>
       questions,
       (q) =>
         clef.ask(titleRequest(q.title, q.kind)).pipe(
-          Effect.map((r) => titleProblems(q.id, q.kind, readTitle(r.answers))),
+          Effect.map((r) => compoundProblems(q.id, readCompound(r.answers))),
           Effect.catch(() => Effect.as(bump("clefDown"), [] as ReadonlyArray<string>)),
         ),
       { concurrency: 4 },
@@ -276,9 +276,13 @@ export const askRound = (raw: unknown) =>
         "clef.refused",
         String((Number((yield* kvGet("clef.refused")) ?? "0") || 0) + 1),
       );
+      // 带上被退回的草稿标题：以后能看出它退得对不对
+      const drafts = parsed.round.questions
+        .filter((x) => clefSays.some((t) => t.startsWith(`题 ${x.id}：`)))
+        .map((x) => `${x.id}=「${x.title}」`);
       yield* kvSet(
         `refusal.${yield* Clock.currentTimeMillis}`,
-        `clef：${clefSays.join("；")}`.slice(0, 600),
+        `clef 退回：${drafts.join("；")}`.slice(0, 600),
       );
       return {
         ok: false,
