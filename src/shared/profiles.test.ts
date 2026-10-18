@@ -53,9 +53,15 @@ describe("the two layers of the instructions", () => {
     expect(text).toContain("一轮问几题由你定");
   });
 
-  it("collecting materials is the agent's judgement, not a stage requirement", () => {
-    expect(text).toContain("由你判断");
+  it("materials the customer can hand over are collected in the interview, but never forced into round one", () => {
+    expect(text).toContain("资料能在访谈里收的，就在访谈里收");
     expect(text).not.toContain("第一轮就问");
+  });
+
+  it("states the ultimate purpose, the independent finish check, and the search tool", () => {
+    expect(text).toContain("不应该再回头找客户");
+    expect(text).toContain("独立的检查者");
+    expect(text).toContain("search_web");
   });
 
   it("tells the agent the checkpoint is urged after a full stage and the moment is its own choice", () => {
