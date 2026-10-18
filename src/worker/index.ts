@@ -11,6 +11,7 @@
  *   POST   /admin/interviews                    create one → the client link       (Authorization: Bearer <ADMIN_TOKEN>)
  *   GET    /admin/interviews[/<code>]           list / everything about one
  *   POST   /admin/interviews/<code>/rotate      new key, old link dies
+ *   DELETE /admin/interviews/<code>              wipe it (DO storage + R2 files); the code is retired for good
  *   GET    /admin/interviews/<code>/file?path=  read a workspace file (e.g. /CONTEXT.md)
  *   GET    /admin/formats                       what toMarkdown supports now vs what we accept
  */
@@ -32,6 +33,7 @@ import {
   normalizeCode,
   open,
   parseInterviewPath,
+  retire,
   rotate,
   sameSecret,
 } from "./registry.ts";
@@ -244,6 +246,12 @@ const adminRoute = (db: D1Like) =>
               ? json({ ok: false, error: "没有这个访谈" }, 404)
               : yield* Effect.die(r.failure)
             : json({ ok: true, url: `${origin()}${interviewPath(code, r.success.key)}` });
+        }
+        if (!one[2] && method === "DELETE") {
+          const keys = yield* rpc(() => stubOf(code).wipe());
+          yield* Effect.promise(() => env.FILES.delete(keys));
+          yield* retire(code).pipe(provide, Effect.orDie);
+          return json({ ok: true, removedFiles: keys.length });
         }
         const exists = yield* list.pipe(
           provide,

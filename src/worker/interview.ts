@@ -675,3 +675,8 @@ export const readWorkspace = (path: string) =>
     const host = yield* Host;
     return yield* Effect.promise(() => host.readFile(path));
   });
+
+/** 删除前：列出这个访谈在 R2 里的所有对象（DO 的存储由 DO 自己清）。 */
+export const r2Keys = Effect.map(q("SELECT r2_key FROM files"), (rows) =>
+  rows.map((r) => text(r, "r2_key")),
+);

@@ -32,6 +32,7 @@ import {
   finishInterview,
   onTurnEnded,
   putFile,
+  r2Keys,
   readWorkspace,
   removeFile,
   resume,
@@ -247,6 +248,13 @@ export class Interviewer extends Think<Cloudflare.Env> {
   }
   snapshot(): Promise<string> {
     return this.run(snapshot);
+  }
+  /** 运营删除访谈：返回 R2 里要删的对象，然后清空这个 DO 的全部存储（之后 code 作废，不会再用）。 */
+  async wipe(): Promise<string[]> {
+    const keys = await this.run(r2Keys);
+    await this.ctx.storage.deleteAll();
+    this.ready = false;
+    return keys;
   }
   readWorkspace(path: string): Promise<string | null> {
     return this.run(readWorkspace(path));

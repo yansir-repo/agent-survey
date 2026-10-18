@@ -79,7 +79,10 @@ export const create = (
     if (brief.length > 8000)
       return yield* new InterviewInvalid({ message: "背景太长了（最多 8000 个字）" });
     const db = yield* Db;
-    if ((yield* db.first("SELECT code FROM interviews WHERE code = ?", [code])) !== undefined)
+    if (
+      (yield* db.first("SELECT code FROM interviews WHERE code = ?", [code])) !== undefined ||
+      (yield* db.first("SELECT code FROM retired_codes WHERE code = ?", [code])) !== undefined
+    )
       return yield* new InterviewExists({ code });
     const key = yield* randomKey;
     yield* db.run(
@@ -126,4 +129,17 @@ export const rotate = (code: string) =>
       found.code,
     ]);
     return { ...found, key } satisfies Interview;
+  });
+
+/** 删除登记并让 code 永久作废（内容在 DO 和 R2 里，由调用方先清）。 */
+export const retire = (code: string) =>
+  Effect.gen(function* () {
+    const db = yield* Db;
+    const found = yield* find(code);
+    if (!found) return yield* new InterviewNotFound({ what: code });
+    yield* db.run("INSERT INTO retired_codes (code, retired_at) VALUES (?, ?)", [
+      found.code,
+      yield* nowSeconds,
+    ]);
+    yield* db.run("DELETE FROM interviews WHERE code = ?", [found.code]);
   });
