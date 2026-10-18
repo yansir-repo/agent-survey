@@ -238,12 +238,15 @@ const clientWords = Effect.gen(function* () {
  * clef 对每道题的标题做两个布尔判断（该拆 / 能改成选择题）。clef 不可用 = 放行并计数（它只是比代码规则更懂一点的第二道关，
  * 不是必经之路）；连续被它退回两次后这一轮不再问它，免得出题者和它来回打转。
  */
+/** clef 只看文字类题：阈值是在这类题上标的；选择题的“（可多选）”“哪几样”会让它误判成多件事（线上 5 次退回里 4 次是误报）。 */
+const GATED_KINDS: ReadonlySet<string> = new Set(["text", "long", "rich"]);
+
 const clefProblems = (questions: ReadonlyArray<Question>) =>
   Effect.gen(function* () {
     if ((Number((yield* kvGet("clef.refused")) ?? "0") || 0) >= 2) return [] as string[];
     const clef = yield* Clef;
     const perQuestion = yield* Effect.forEach(
-      questions,
+      questions.filter((x) => GATED_KINDS.has(x.kind)),
       (q) =>
         clef.ask(titleRequest(q.title, q.kind)).pipe(
           Effect.map((r) => compoundProblems(q.id, readCompound(r.answers))),
