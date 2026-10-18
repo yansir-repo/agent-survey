@@ -616,7 +616,7 @@ const upload = async (qid: string, files: File[]): Promise<void> => {
   render();
   const form = new FormData();
   for (const f of ok) form.append("file", f);
-  const res = await fetch(`${api}/files?qid=${encodeURIComponent(qid)}`, {
+  const res = await fetch(apiUrl(`/files?qid=${encodeURIComponent(qid)}`), {
     method: "POST",
     body: form,
   }).catch(() => null);
@@ -648,7 +648,7 @@ const upload = async (qid: string, files: File[]): Promise<void> => {
 };
 
 const removeFile = async (path: string): Promise<void> => {
-  await fetch(`${api}/files?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+  await fetch(apiUrl(`/files?path=${encodeURIComponent(path)}`), { method: "DELETE" });
   const qid = view?.files.find((f) => f.path === path)?.qid;
   await refresh();
   const q = qid ? find(qid) : undefined;
