@@ -44,6 +44,7 @@ import {
   parseJudge,
 } from "../shared/finish-judge.ts";
 import { recordText, type RecordRound } from "../shared/record.ts";
+import { repeatsPending } from "../shared/repeat.ts";
 import { FetchOut, SearchOut, formatSearch } from "../shared/web.ts";
 import { answersMarkdown, type Answered } from "../shared/render.ts";
 import { checkPublicUrl } from "../shared/url-guard.ts";
@@ -295,6 +296,26 @@ export const askRound = (raw: unknown) =>
       yield* kvSet(`refusal.${yield* Clock.currentTimeMillis}`, parsed.error.slice(0, 600));
       return { ok: false, message: `这一轮没有发出：${parsed.error}。改正后重新调用 ask_round。` };
     }
+    const asked = yield* allQuestions;
+    const repeats = repeatsPending(
+      parsed.round.questions,
+      (yield* loadMachine).deferred.flatMap((id) => {
+        const hit = asked.find((x) => x.id === id);
+        return hit ? [{ id, title: hit.title }] : [];
+      }),
+    );
+    if (repeats.length > 0) {
+      yield* bump("askRefused");
+      yield* bump("repeatRefused");
+      yield* kvSet(
+        `refusal.${yield* Clock.currentTimeMillis}`,
+        `重复待补答：${repeats.join("；")}`.slice(0, 600),
+      );
+      return {
+        ok: false,
+        message: `这一轮没有发出：${repeats.join("；")}。去掉它们后重新调用 ask_round。`,
+      };
+    }
     const clefSays = yield* clefProblems(parsed.round.questions);
     if (clefSays.length > 0) {
       yield* bump("askRefused");
@@ -426,6 +447,11 @@ const judgeFinish = Effect.gen(function* () {
   const host = yield* Host;
   const { mission } = yield* beforeTurnContext;
   const record = yield* buildRecord;
+  const asked = yield* allQuestions;
+  const pending = (yield* loadMachine).deferred.flatMap((id) => {
+    const hit = asked.find((x) => x.id === id);
+    return hit ? [{ id, title: hit.title }] : [];
+  });
   const res = yield* Effect.promise(() =>
     host.deepseek(
       "chat/completions",
@@ -437,7 +463,7 @@ const judgeFinish = Effect.gen(function* () {
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: JUDGE_SYSTEM },
-          { role: "user", content: judgeUser(mission, record) },
+          { role: "user", content: judgeUser(mission, record, pending) },
         ],
       },
       90_000,
@@ -466,7 +492,7 @@ export const finishInterview = (summary: string) =>
       if (items === null) yield* bump("judgeDown");
       else {
         yield* kvSet("judge.last", JSON.stringify(items));
-        const askable = askableOf(items);
+        const askable = askableOf(items, new Set((yield* loadMachine).deferred));
         const blocked = Number((yield* kvGet("finish.blocked")) ?? "0") || 0;
         if (askable.length > 0 && blocked < MAX_FINISH_BLOCKS) {
           yield* kvSet("finish.blocked", String(blocked + 1));

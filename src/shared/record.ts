@@ -41,7 +41,7 @@ export const recordText = (
       const ans =
         a === undefined || a.value === null || a.value === undefined
           ? a?.skipped
-            ? "〔客户选了稍后再答〕"
+            ? `〔客户选了稍后再答，编号 ${q.id}〕`
             : "〔没有回答〕"
           : valueText(q.kind, a.value);
       return `Q（${q.kind}）${q.title}\nA ${ans}`;
