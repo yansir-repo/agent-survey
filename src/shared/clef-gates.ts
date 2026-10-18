@@ -64,3 +64,47 @@ export const readVerdicts = (
     outside: answers[`scope_${i + 1}`]?.probabilities["outside"] ?? null,
     same: answers[`dup_${i + 1}`]?.probabilities["same"] ?? null,
   }));
+
+/**
+ * 意外检测：我（访谈者）上一轮之后的“理解”里每一条，和客户这一轮的回答是什么关系？
+ *   fits 吻合 / overturns 推翻（他说的和这条矛盾）/ adds 补充（他说了这条没有的、会改变它的新东西）/ unrelated 无关
+ * 输入保持短：每条理解一句话，回答只放“题目 + 他的答案”。
+ */
+export type Assumption = { readonly topic: string; readonly text: string };
+export type Surprise = { readonly overturns: number | null; readonly adds: number | null };
+
+export const SURPRISE_ANSWER_CHARS = 2500;
+
+export const surpriseRequest = (
+  assumptions: ReadonlyArray<Assumption>,
+  answers: string,
+): ClefRequest => ({
+  state: {
+    我的理解: assumptions.map((a, i) => ({ 编号: `a${i + 1}`, 主题: a.topic, 内容: a.text })),
+    客户这一轮的回答: answers.slice(0, SURPRISE_ANSWER_CHARS),
+  },
+  questions: Object.fromEntries(
+    assumptions.map((_, i) => [
+      `rel_${i + 1}`,
+      {
+        type: "choice" as const,
+        instructions: `只看“我的理解”里的 a${i + 1}：客户这一轮的回答和它是什么关系？`,
+        criteria: {
+          fits: "吻合：他说的和这条一致，或者没有改变它",
+          overturns: "推翻：他说的和这条直接矛盾",
+          adds: "补充：他说了这条没有覆盖的新事实，会让这条需要改写",
+          unrelated: "无关：回答没有涉及这条",
+        },
+      },
+    ]),
+  ),
+});
+
+export const readSurprise = (
+  answers: Readonly<Record<string, ClefChoice>>,
+  count: number,
+): ReadonlyArray<Surprise> =>
+  Array.from({ length: count }, (_, i) => ({
+    overturns: answers[`rel_${i + 1}`]?.probabilities["overturns"] ?? null,
+    adds: answers[`rel_${i + 1}`]?.probabilities["adds"] ?? null,
+  }));

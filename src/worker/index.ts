@@ -21,7 +21,7 @@ import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
 import { MODELS, resolveModel } from "../shared/models.ts";
 import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
-import { gateRequest, readVerdicts } from "../shared/clef-gates.ts";
+import { gateRequest, readSurprise, readVerdicts, surpriseRequest } from "../shared/clef-gates.ts";
 import { Clef, ClefLive } from "./clef.ts";
 import { ingest } from "./upload.ts";
 import {
@@ -200,6 +200,23 @@ const adminRoute = (db: D1Like) =>
         );
       }
       // 校准用：对一批草拟的题跑 clef 校验门（线上才有 Workers AI），返回每道题的 P(范围外) 和 P(重复)。
+      if (path === "/admin/clef-surprise" && method === "POST") {
+        const body = asRecord(yield* readJson(request));
+        const assumptions = (Array.isArray(body["assumptions"]) ? body["assumptions"] : []).map(
+          (x) => ({
+            topic: str(asRecord(x)["topic"]),
+            text: str(asRecord(x)["text"]),
+          }),
+        );
+        if (assumptions.length === 0 || assumptions.length > 20)
+          return json({ ok: false, error: "assumptions 要 1–20 条" }, 422);
+        const asked = yield* Clef.use((c) =>
+          c.ask(surpriseRequest(assumptions, str(body["answers"]))),
+        ).pipe(Effect.provide(ClefLive(env.AI)), Effect.result);
+        return asked._tag === "Failure"
+          ? json({ ok: false, error: asked.failure.message }, 502)
+          : json({ ok: true, verdicts: readSurprise(asked.success.answers, assumptions.length) });
+      }
       if (path === "/admin/clef-probe" && method === "POST") {
         const body = asRecord(yield* readJson(request));
         const drafts = (Array.isArray(body["questions"]) ? body["questions"] : []).map((x) => ({
