@@ -18,6 +18,7 @@ import {
 import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } from "ai";
 import { Effect, Layer, Schema } from "effect";
 import { Clef, ClefLive } from "./clef.ts";
+import { SCHEMAS } from "../shared/deliverables.ts";
 import type { InterviewView } from "../shared/api.ts";
 import { describeCall, pushActivity } from "../shared/activity.ts";
 import { liveView } from "../shared/live.ts";
@@ -39,8 +40,10 @@ import {
   putFile,
   addUrls,
   outcome,
+  writeJsonDeliverable,
   r2Keys,
   readWorkspace,
+  record,
   removeFile,
   searchWeb,
   resume,
@@ -51,9 +54,12 @@ import {
   submit,
   takenPaths,
   view,
+  type Outcome,
   type Result,
   type Row,
+  type Spec,
   type StoredFile,
+  DEFAULT_SPEC,
 } from "./interview.ts";
 
 export type { Result };
@@ -170,6 +176,20 @@ export class Interviewer extends Think<Cloudflare.Env> {
     return v !== "" && MODELS[v] ? v : this.env.DEEPSEEK_MODEL || DEFAULT_MODEL;
   }
 
+  /** 这场访谈的交付物契约（同步读：getTools 不是 Promise）。 */
+  private spec(): Spec {
+    this.ctx.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)",
+    );
+    const row = this.ctx.storage.sql.exec("SELECT v FROM kv WHERE k = 'spec'").toArray()[0];
+    const raw = typeof row?.["v"] === "string" ? row["v"] : "";
+    if (raw === "") return DEFAULT_SPEC;
+    const parsed = JSON.parse(raw) as Spec;
+    return Array.isArray(parsed.deliverables) && parsed.deliverables.length > 0
+      ? parsed
+      : DEFAULT_SPEC;
+  }
+
   private model(): LanguageModel {
     const spec = MODELS[this.modelName()] ?? MODELS[DEFAULT_MODEL]!;
     if (spec.provider === "deepseek") {
@@ -224,7 +244,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
   }
 
   override getTools(): ToolSet {
-    return {
+    const tools: ToolSet = {
       ask_round: tool({
         description:
           "向客户发出一轮问题（1–8 题，其中作文题 long/rich 最多 1 道，一题只问一件事）。调用成功后本回合结束，等客户回答。不要和别的工具一起调用。提交前逐题自查（否则这一轮会被退回）：每题都要有 resolves 和 mode；mode=explore 是开放题（不能有选项）；single/multi 用 mode=guess（选项是你猜的）或 confirm（basis 逐字抄客户或邀请说明里的原话，可用 … 隔开几处，不能改写）；顶层要有 delta。",
@@ -253,6 +273,22 @@ export class Interviewer extends Think<Cloudflare.Env> {
         execute: (i) => this.run(fetchPage(i.url)),
       }),
     };
+    const jsonDeliverable = this.spec().deliverables.find((d) => d.format === "json");
+    if (jsonDeliverable?.schema) {
+      const def = SCHEMAS[jsonDeliverable.schema];
+      const name = jsonDeliverable.schema === "client-facts" ? "record_facts" : "propose_model";
+      const what =
+        jsonDeliverable.schema === "client-facts"
+          ? "只写客户说过的五类事实：现在有什么、他怎么分、以后谁维护、边界与硬约束、参考；不知道的写 unknown / 不知道。"
+          : "只写决定：BSP、内容模型、路由、语言、表单；不写版式、种子、模板。";
+      if (def)
+        tools[name] = tool({
+          description: `提交或更新 ${jsonDeliverable.path}（${jsonDeliverable.schema}）。${what}未通过会把具体错误原样退回，改完再提交。检查：${(jsonDeliverable.gates ?? []).join("、") || "schema 默认 gate"}。`,
+          inputSchema: jsonSchema<unknown>(jsonOf(def.schema)),
+          execute: (raw) => this.run(writeJsonDeliverable(raw)),
+        });
+    }
+    return tools;
   }
 
   /** 这一回合到目前为止的推理文字、ask_round 的参数文字（等待界面用；只在内存里，下一回合开始时清空）。 */
@@ -279,8 +315,8 @@ export class Interviewer extends Think<Cloudflare.Env> {
 
   // ---- Worker 调用的方法（RPC）----
 
-  begin(brief: string, mission: string, model: string, start = true): Promise<void> {
-    return this.run(begin(brief, mission, model, start));
+  begin(brief: string, mission: string, model: string, start = true, spec = ""): Promise<void> {
+    return this.run(begin(brief, mission, model, start, spec));
   }
   start(): Promise<void> {
     return this.run(start);
@@ -319,6 +355,10 @@ export class Interviewer extends Think<Cloudflare.Env> {
   snapshot(): Promise<string> {
     return this.run(snapshot);
   }
+  /** 原始记录（题、回答、补充、跳过的题、文件开头）：运营把它交给下一场开发者访谈。 */
+  record(): Promise<string> {
+    return this.run(record);
+  }
   /** 运营删除访谈：返回 R2 里要删的对象，然后清空这个 DO 的全部存储（之后 code 作废，不会再用）。 */
   wipe(): Promise<string[]> {
     return this.run(r2Keys).then((keys) =>
@@ -328,7 +368,7 @@ export class Interviewer extends Think<Cloudflare.Env> {
       }),
     );
   }
-  outcome() {
+  outcome(): Promise<Outcome> {
     return this.run(outcome);
   }
   readWorkspace(path: string): Promise<string | null> {

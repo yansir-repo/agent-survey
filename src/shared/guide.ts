@@ -5,7 +5,11 @@
  */
 import { MAX_PROVIDED_BYTES } from "./provided.ts";
 
-export type GuideProfile = { readonly name: string; readonly title: string };
+export type GuideProfile = {
+  readonly name: string;
+  readonly title: string;
+  readonly stage: "client" | "dev";
+};
 export type GuideModel = {
   readonly name: string;
   readonly title: string;
@@ -23,7 +27,8 @@ export const guideText = (o: {
   readonly defaultModel: string;
 }): string => `# grill-me：给 agent 的说明书
 
-一个访谈工具：你发一条邀请链接给客户，客户在页面上一轮一轮回答访谈者（另一个 agent）的问题，最后得到一份 \`/CONTEXT.md\`（交付物）和一段总结。
+一个访谈工具：你发一条邀请链接给客户，客户在页面上一轮一轮回答访谈者（另一个 agent）的问题。客户访谈得到 \`/CONTEXT.md\`（叙事）和 \`/facts.json\`（五类事实的结构化契约）。
+同一个引擎可以开第二场：客户访谈结束后，用 \`build-brief\` 预设采访开发者，把客户的话变成《建站交底》：\`/CONTEXT.md\`（给人看）+ \`/model.json\`（给下游的机器契约）。
 你（运营侧的 agent）做三件事：**发邀请 → 等 → 取结果**。客户那一侧的接口（\`/i/...\`）不是给你用的。
 
 ## 认证
@@ -37,6 +42,8 @@ export const guideText = (o: {
 1. \`POST ${o.origin}/admin/interviews\` → 得到客户链接 \`url\`（**只发给这位客户本人**：地址里的 key 就是门）。
 2. 等客户答完：\`GET /admin/interviews/<code>/result\` 看 \`phase\`（\`thinking\` 访谈者在想 / \`asking\` 等客户答 / \`done\` 访谈结束）；命令行 \`wait\` 会替你轮询。
 3. \`phase = done\` 后，同一个 \`/result\` 里有 \`context\`（CONTEXT.md 全文）、\`summary\`、\`unanswered\`（客户始终没答的题）。
+4. 客户 \`done\` 后，命令行 \`create --from <客户 code>\` 发起第二场（开发者访谈）：原始记录作为客户资料、CONTEXT 作为我们的整理预置进去；得到开发者链接（**只发内部**）。
+5. 开发者访谈的 \`CONTEXT.md\` 就是《建站交底》；用 \`result\` 取出来，交给下一步“规划结构”。
 
 ## 接口
 
@@ -45,6 +52,7 @@ export const guideText = (o: {
 | \`POST /admin/interviews\` | 创建访谈，返回客户链接 |
 | \`GET /admin/interviews\` | 列表：code、url、phase、轮数 |
 | \`GET /admin/interviews/<code>/result\` | **取结果**：phase、summary、context、unanswered、轮数（很小，轮询用它） |
+| \`GET /admin/interviews/<code>/record\` | 原始问答记录（题、回答、补充、跳过的题、文件开头）——交接给第二场用 |
 | \`GET /admin/interviews/<code>\` | 全部内容（所有轮次、答案、对话统计）——体积大，调试才用 |
 | \`GET /admin/interviews/<code>/file?path=/CONTEXT.md\` | 读访谈者工作区里的任一文件 |
 | \`POST /admin/interviews/<code>/materials\` | 预置资料：multipart（\`source\` + 多个 \`file\`）或 JSON \`{source, urls}\`，见下 |
@@ -62,17 +70,18 @@ export const guideText = (o: {
 
 - \`code\`（必填）：小写字母、数字、横线，2–39 个字符。同时是链接的一部分和访谈者的名字。已存在 → 409，响应里带已有的链接（\`existing\`）；**删过的 code 永久作废**（\`retired: true\`），换一个。
 - \`brief\`（建议写）：这位客户的背景，最多 ${MAX_BRIEF_CHARS} 字。见下。
-- \`profile\`：任务预设，默认 \`${o.defaultProfile}\`。可选：${o.profiles.map((p) => `\`${p.name}\`（${p.title}）`).join("、")}。
+- \`profile\`：任务预设，默认 \`${o.defaultProfile}\`。可选：${o.profiles.map((p) => `\`${p.name}\`（${p.title}${p.stage === "dev" ? "，开发者访谈" : ""}）`).join("、")}。
 - \`mission\`：整段覆盖预设（自己写任务，≤ 12000 字）；\`append\`：在预设（或 \`mission\`）后面追加几句。
 - \`urls\`：预置网址 \`[{url, source}]\`（见下“预置资料”），最多 20 个，要过公网地址检查。
 - \`start\`：默认 true（立刻开始）；要先放文件就给 false，放完再调 \`/start\`——命令行的 \`--material\` 替你做了这三步。
+- \`--from <客户 code>\`（命令行）：从已结束的客户访谈发起第二场。默认 code 是 \`<客户 code>-dev\`，profile 是 \`build-brief\`；自动把 \`RECORD.txt\` 作为客户资料、\`CONTEXT.txt\` + \`HANDOFF.txt\`（以及客户访谈的 \`facts.json\`，如果有）作为我们的整理预置进去，然后开始。客户访谈没 \`done\` 会拒绝。
 - \`model\`：访谈者用的模型，默认 \`${o.defaultModel}\`。线上可用：${
   o.models
     .filter((m) => m.available)
     .map((m) => `\`${m.name}\``)
     .join("、") || "（无）"
 }；不可用的会被拒。
-- 创建成功 → 201 \`{ ok, code, profile, model, url }\`。出错 → \`{ ok: false, error }\`，\`error\` 是可以直接照着改的一句话。
+- 创建成功 → 201 \`{ ok, code, profile, stage, deliverables, model, url }\`。出错 → \`{ ok: false, error }\`，\`error\` 是可以直接照着改的一句话。
 
 ### \`brief\` 怎么写
 
@@ -93,9 +102,31 @@ export const guideText = (o: {
 
 命令行：\`node scripts/invite.ts create --code C --brief-file b.md --material 画册.pdf --url https://客户官网 --ours 竞品调研.md\`。
 
+## 客户访谈的 /facts.json
+
+客户访谈除了 \`CONTEXT.md\`，还会用 \`record_facts\` 提交 \`/facts.json\`：五类只有客户知道的事实（现在有什么、他怎么分、以后谁维护、边界与硬约束、参考）+ 动作。\`CONTEXT.md\` 是给人看的叙事；\`/facts.json\` 是给开发者访谈和下游的。
+
+\`finish_interview\` 会校验它：五类关键句不能空白（\`facts-five\`），不能有 \`example.com\` / \`待填写\` 这类占位（\`facts-no-placeholders\`），参考站不能同一个网址既喜欢又讨厌（\`references-distinct\`）。所以客户访谈的 agent 要主动调用 \`record_facts\`，不能只写 CONTEXT.md。
+
+## 第二场：开发者访谈（handoff）
+
+客户访谈 \`phase = done\` 后：
+
+\`\`\`sh
+node scripts/invite.ts create --from mz-041          # 默认 mz-041-dev，profile=build-brief
+node scripts/invite.ts wait --code mz-041-dev
+node scripts/invite.ts result --code mz-041-dev --out BRIEF.md --json-out model.json
+\`\`\`
+
+- 链接**只发内部**：它包含客户访谈的记录和整理。
+- 第二场的 \`CONTEXT.md\` 是给人看的《建站交底》；\`/model.json\` 是给下游（草图 / zeroY）的机器契约。agent 用 \`propose_model\` 提交它：Schema（site-model）+ gate（页面职责、路由对页面、引用存在、类型有字段）不过，\`finish_interview\` 会退回。
+- \`--json-out\` 写出 \`/model.json\`；不写就只打印在 \`deliverables\` 里。
+- 客户始终没答的题放在 \`HANDOFF.txt\` 里；开发者访谈可以把它标成“待确认 / 客户”。
+- 要补资料：\`POST /admin/interviews/<code>/materials\`（\`source=client\` 是客户的话，\`source=ours\` 是我们的整理），随时可以加。
+
 ## 结果：\`GET /admin/interviews/<code>/result\`
 
-\`{ ok, code, phase, rounds, summary, context, unanswered }\`。\`context\` 是 Markdown 全文，\`unanswered\` 是 \`[{id, title}]\`。\`phase\` 不是 \`done\` 时 \`context\` 是**进行中的草稿**，不要当成交付物。
+\`{ ok, code, phase, rounds, summary, context, deliverables, unanswered }\`。\`context\` 是主交付物（Markdown）全文；\`deliverables\` 是 \`[{path, format, text}]\`（开发者访谈里含 \`/model.json\`）；\`unanswered\` 是 \`[{id, title}]\`。\`phase\` 不是 \`done\` 时 \`context\` 是**进行中的草稿**，不要当成交付物。
 
 ## 注意
 

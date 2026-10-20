@@ -11,6 +11,7 @@
 import { Clock, Context, Effect, Schema } from "effect";
 import { Clef } from "./clef.ts";
 import type { FileInfo, InterviewView, RoundView } from "../shared/api.ts";
+import { checkDeliverable, type Deliverable } from "../shared/deliverables.ts";
 import { markdownPath } from "../shared/files.ts";
 import { providedListing, sourceOfQid, type ProvidedUrl } from "../shared/provided.ts";
 import {
@@ -90,6 +91,18 @@ export type Result = { readonly ok: boolean; readonly error?: string; readonly r
 const OK: Result = { ok: true };
 const refuse = (error: string): Result => ({ ok: false, error });
 
+/** 这场访谈的交付物契约：创建时快照进 kv，之后改预设不影响进行中的访谈。 */
+export type Spec = {
+  readonly stage: "client" | "dev";
+  readonly deliverables: ReadonlyArray<Deliverable>;
+  readonly judge: boolean;
+};
+export const DEFAULT_SPEC: Spec = {
+  stage: "client",
+  deliverables: [{ path: CONTEXT_PATH, format: "markdown", primary: true }],
+  judge: true,
+};
+
 // ---- SQLite ----
 
 const q = (sql: string, ...params: ReadonlyArray<SqlValue>) =>
@@ -124,6 +137,15 @@ const bump = (name: string) =>
     `stat.${name}`,
   );
 const kvDel = (k: string) => q("DELETE FROM kv WHERE k = ?", k);
+
+/** 创建时存下的交付物契约；老访谈没有 = 客户场的默认（CONTEXT.md + 检查者）。 */
+const loadSpec = Effect.map(kvGet("spec"), (raw): Spec => {
+  if (raw === null) return DEFAULT_SPEC;
+  const parsed = JSON.parse(raw) as Spec;
+  return Array.isArray(parsed.deliverables) && parsed.deliverables.length > 0
+    ? parsed
+    : DEFAULT_SPEC;
+});
 
 const loadMachine = Effect.map(kvGet("machine"), (raw) =>
   raw ? (JSON.parse(raw) as Machine) : initial,
@@ -438,6 +460,9 @@ const buildRecord = Effect.gen(function* () {
   return recordText((yield* kvGet("brief")) ?? "", rounds, heads);
 });
 
+/** 运营侧读原始记录：交接给下一场（开发者访谈）用。和检查者看到的是同一份事实。 */
+export const record = buildRecord;
+
 const ChatOut = Schema.Struct({
   choices: Schema.Array(Schema.Struct({ message: Schema.Struct({ content: Schema.String }) })),
 });
@@ -478,16 +503,29 @@ const judgeFinish = Effect.gen(function* () {
 export const finishInterview = (summary: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
-    const ctx = yield* Effect.promise(() => host.readFile(CONTEXT_PATH));
-    if (!ctx || ctx.trim() === "") {
-      yield* bump("finishRefused");
+    const spec = yield* loadSpec;
+
+    // 交付物先验：结构不对（JSON 不过 schema / gate）就不用再请检查者看“还缺什么”了。
+    const problems: string[] = [];
+    for (const d of spec.deliverables) {
+      const text = yield* Effect.promise(() => host.readFile(d.path));
+      if (text === null || text.trim() === "") {
+        problems.push(`${d.path} 还没写`);
+        continue;
+      }
+      const checked = checkDeliverable(d, text);
+      if (!checked.ok) problems.push(`${d.path}：\n${checked.error}`);
+    }
+    if (problems.length > 0) {
+      yield* bump("deliverableRefused");
       return {
         ok: false,
-        message: `还不能结束：先用写文件工具把 ${CONTEXT_PATH} 写好（已知 / 不知道 / 假设），再调用 finish_interview。`,
+        message: `还不能结束：\n${problems.join("\n\n")}\n\n改完再调用 finish_interview。`,
       };
     }
+
     // 验收：回头补答那一轮是最后一轮，不再拦。其余情况对着原始记录查“现在就能问”的事；最多拦 MAX_FINISH_BLOCKS 次，不会死锁。
-    if (!(yield* loadMachine).deferredRoundOpened) {
+    if (spec.judge && !(yield* loadMachine).deferredRoundOpened) {
       const items = yield* judgeFinish;
       if (items === null) yield* bump("judgeDown");
       else {
@@ -509,6 +547,27 @@ export const finishInterview = (summary: string) =>
     yield* kvSet("summary", summary);
     yield* kvSet("turn.finished", "1");
     return { ok: true, message: "访谈结束。" };
+  });
+
+/**
+ * 结构化交付物的工具实现（`propose_model` / `record_facts`）。校验通过才写文件；
+ * 失败原样退回错误，agent 可以改完再提交。它不结束回合——结束还是 finish_interview。
+ */
+export const writeJsonDeliverable = (raw: unknown) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
+    const spec = yield* loadSpec;
+    const d = spec.deliverables.find((x) => x.format === "json");
+    if (!d)
+      return { ok: false, message: "这个访谈没有结构化交付物：用写文件工具维护 CONTEXT.md。" };
+    const text = typeof raw === "string" ? raw : JSON.stringify(raw);
+    const checked = checkDeliverable(d, text);
+    if (!checked.ok) {
+      yield* bump("jsonRefused");
+      return { ok: false, message: `没有通过，改完再提交：\n${checked.error}` };
+    }
+    yield* Effect.promise(() => host.writeFile(d.path, checked.text));
+    return { ok: true, message: `${d.path} 已更新，并通过了校验。` };
   });
 
 const MAX_PAGE_BYTES = 1_500_000;
@@ -664,13 +723,14 @@ const startTurn = Effect.gen(function* () {
 });
 
 /** start = false：先建好、等运营把资料放完再 start（客户那时看到的是“正在准备”）。 */
-export const begin = (brief: string, mission: string, model: string, start = true) =>
+export const begin = (brief: string, mission: string, model: string, start = true, spec = "") =>
   Effect.gen(function* () {
     if ((yield* kvGet("begun")) !== null) return;
     yield* kvSet("begun", "1");
     yield* kvSet("brief", brief);
     yield* kvSet("mission", mission);
     yield* kvSet("model", model);
+    yield* kvSet("spec", spec.trim() === "" ? JSON.stringify(DEFAULT_SPEC) : spec);
     yield* saveMachine(initial);
     if (start) yield* startTurn;
     else yield* kvSet("deferred.start", "1");
@@ -902,9 +962,9 @@ export const removeFile = (path: string) =>
     return out;
   });
 
-/** 运营看的：全部轮次和答案、CONTEXT.md、背景、结局（JSON 文本）。 */
+/** 运营看的：全部轮次和答案、交付物、背景、结局（JSON 文本）。 */
 export const snapshot = Effect.gen(function* () {
-  const host = yield* Host;
+  const delivered = yield* readDeliverables;
   const rows = yield* roundRows;
   const rounds: unknown[] = [];
   for (const r of rows) {
@@ -923,7 +983,7 @@ export const snapshot = Effect.gen(function* () {
   return JSON.stringify({
     brief: yield* kvGet("brief"),
     mission: yield* kvGet("mission"),
-    model: yield* kvGet("model"),
+    modelName: yield* kvGet("model"),
     stats: Object.fromEntries(
       (yield* q("SELECT k, v FROM kv WHERE k LIKE 'stat.%'")).map((r) => [
         text(r, "k").slice(5),
@@ -937,7 +997,9 @@ export const snapshot = Effect.gen(function* () {
     judge: JSON.parse((yield* kvGet("judge.last")) ?? "[]") as unknown,
     machine: yield* loadMachine,
     summary: yield* kvGet("summary"),
-    context: yield* Effect.promise(() => host.readFile(CONTEXT_PATH)),
+    context: delivered.context,
+    spec: delivered.spec,
+    deliverables: delivered.files,
     rounds,
     files: yield* fileInfos,
     view: yield* view,
@@ -950,15 +1012,45 @@ export const readWorkspace = (path: string) =>
     return yield* Effect.promise(() => host.readFile(path));
   });
 
-/** 取结果（运营的 agent 轮询用）：很小——phase、总结、CONTEXT.md 全文、客户始终没答的题。phase 不是 done 时 context 只是草稿。 */
-export const outcome = Effect.gen(function* () {
+/** 交付物快照：给 result / snapshot 用。JSON 交付物解析成对象；坏的 JSON 不抛，给 null。 */
+const readDeliverables = Effect.gen(function* () {
   const host = yield* Host;
+  const spec = yield* loadSpec;
+  const files: Array<{ path: string; format: "markdown" | "json"; text: string }> = [];
+  let context = "";
+  for (const d of spec.deliverables) {
+    const text = (yield* Effect.promise(() => host.readFile(d.path))) ?? "";
+    if (d.primary) context = text;
+    files.push({ path: d.path, format: d.format, text });
+  }
+  if (context === "") context = files.find((f) => f.format === "markdown")?.text ?? "";
+  return { spec, files, context };
+});
+
+/** `outcome` 的 RPC 形状（Durable Object 的 RPC 类型对推断不友好，显式写出来）。 */
+export type Outcome = {
+  readonly phase: InterviewView["phase"];
+  readonly rounds: number;
+  readonly summary: string;
+  readonly context: string;
+  readonly deliverables: ReadonlyArray<{
+    readonly path: string;
+    readonly format: "markdown" | "json";
+    readonly text: string;
+  }>;
+  readonly unanswered: InterviewView["unanswered"];
+};
+
+/** 取结果（运营的 agent 轮询用）：phase、总结、主交付物全文、结构化交付物、客户始终没答的题。 */
+export const outcome: Effect.Effect<Outcome, never, Host | Store> = Effect.gen(function* () {
   const v = yield* view;
+  const delivered = yield* readDeliverables;
   return {
     phase: v.phase,
     rounds: v.history.length,
     summary: (yield* kvGet("summary")) ?? "",
-    context: (yield* Effect.promise(() => host.readFile(CONTEXT_PATH))) ?? "",
+    context: delivered.context,
+    deliverables: delivered.files,
     unanswered: v.unanswered,
   };
 });

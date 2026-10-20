@@ -53,9 +53,11 @@ describe("the two layers of the instructions", () => {
     expect(text).toContain("一轮问几题由你定");
   });
 
-  it("materials the customer can hand over are collected in the interview, but never forced into round one", () => {
-    expect(text).toContain("资料能在访谈里收的，就在访谈里收");
-    expect(text).not.toContain("第一轮就问");
+  it("files are collected after the interview, never in it", () => {
+    const mission = PROFILES["cross-border-website"]!.mission;
+    expect(mission).toContain("访谈不收文件");
+    expect(mission).toContain("收集页");
+    expect(mission).not.toContain("第一轮就问");
   });
 
   it("states the ultimate purpose, the independent finish check, and the search tool", () => {
@@ -75,5 +77,53 @@ describe("the two layers of the instructions", () => {
     expect(m).toContain("销售流程");
     expect(m).toContain("不在范围内");
     expect(m).toContain("完成的判据");
+  });
+});
+
+describe("the two interviews", () => {
+  it("has a developer preset whose deliverable is the build brief", () => {
+    const p = PROFILES["build-brief"];
+    expect(p).toBeDefined();
+    expect(p!.mission).toContain("建站交底");
+    expect(p!.mission).toContain("开发者");
+    expect(p!.mission).toContain("CONTEXT.md");
+    expect(p!.mission).toContain("不要做");
+  });
+
+  it("the client preset asks for the five facts the developer interview needs", () => {
+    const m = PROFILES["cross-border-website"]!.mission;
+    expect(m).toContain("开发者访谈");
+    expect(m).toContain("现在有什么");
+    expect(m).toContain("以后谁维护");
+    expect(m).toContain("边界和硬约束");
+    expect(m).toContain("参考");
+  });
+
+  it("the client preset's contract is CONTEXT.md + facts.json, with the independent judge", () => {
+    const r = resolveMission({});
+    expect(r).toMatchObject({ ok: true, stage: "client", judge: true });
+    expect(r.ok ? r.deliverables : []).toEqual([
+      { path: "/CONTEXT.md", format: "markdown", primary: true },
+      {
+        path: "/facts.json",
+        format: "json",
+        schema: "client-facts",
+        gates: ["facts-five", "facts-no-placeholders", "references-distinct"],
+      },
+    ]);
+  });
+
+  it("the developer preset adds /model.json, gates, and turns the judge off", () => {
+    const p = PROFILES["build-brief"]!;
+    expect(p.stage).toBe("dev");
+    expect(p.judge).toBe(false);
+    expect(p.deliverables).toContainEqual(
+      expect.objectContaining({ path: "/model.json", format: "json", schema: "site-model" }),
+    );
+    const model = p.deliverables.find((d) => d.path === "/model.json");
+    expect(model?.gates).toContain("routes-match-pages");
+
+    const r = resolveMission({ profile: "build-brief" });
+    expect(r).toMatchObject({ ok: true, stage: "dev", judge: false });
   });
 });

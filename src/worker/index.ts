@@ -243,14 +243,22 @@ const adminRoute = (db: D1Like) =>
         if (!pre.ok) return json({ ok: false, error: pre.error }, 422);
         if (pre.urls.length > 0) yield* rpc(() => stubOf(i.code).addUrls(pre.urls));
         // start: false = 先建好，等 materials 放完再 POST …/start（命令行的 --material 就是这么走的）
+        // 交付物契约也一起快照进 DO：之后改预设不影响进行中的访谈。
+        const spec = JSON.stringify({
+          stage: resolved.stage,
+          deliverables: resolved.deliverables,
+          judge: resolved.judge,
+        });
         yield* rpc(() =>
-          stubOf(i.code).begin(i.brief, i.mission, i.model, body["start"] !== false),
+          stubOf(i.code).begin(i.brief, i.mission, i.model, body["start"] !== false, spec),
         );
         return json(
           {
             ok: true,
             code: i.code,
             profile: i.profile,
+            stage: resolved.stage,
+            deliverables: resolved.deliverables,
             model: i.model,
             url: `${origin()}${interviewPath(i.code, i.key)}`,
           },
@@ -279,6 +287,9 @@ const adminRoute = (db: D1Like) =>
           profiles: Object.entries(PROFILES).map(([name, p]) => ({
             name,
             title: p.title,
+            stage: p.stage,
+            judge: p.judge,
+            deliverables: p.deliverables,
             chars: p.mission.length,
           })),
         });
@@ -299,7 +310,7 @@ const adminRoute = (db: D1Like) =>
         return json({ interviews: rows });
       }
       const one =
-        /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result|\/materials|\/start)?$/.exec(
+        /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result|\/record|\/materials|\/start)?$/.exec(
           path,
         );
       if (one) {
@@ -356,8 +367,12 @@ const adminRoute = (db: D1Like) =>
           const results = yield* ingest(env, stubOf(code), code, providedTarget(src), files);
           return json({ ok: results.some((r) => r.ok), results });
         }
-        if (one[2] === "/result" && method === "GET")
-          return json({ ok: true, code, ...(yield* rpc(() => stubOf(code).outcome())) });
+        if (one[2] === "/result" && method === "GET") {
+          const out = yield* rpc(() => stubOf(code).outcome());
+          return json({ ok: true, code, ...out });
+        }
+        if (one[2] === "/record" && method === "GET")
+          return json({ ok: true, code, text: yield* rpc(() => stubOf(code).record()) });
         if (one[2] === "/file" && method === "GET") {
           const text = yield* rpc(() =>
             stubOf(code).readWorkspace(url.searchParams.get("path") ?? ""),
@@ -415,7 +430,11 @@ const buildHandler = (db: D1Like) =>
 const guide = (origin: string): string =>
   guideText({
     origin,
-    profiles: Object.entries(PROFILES).map(([name, p]) => ({ name, title: p.title })),
+    profiles: Object.entries(PROFILES).map(([name, p]) => ({
+      name,
+      title: p.title,
+      stage: p.stage,
+    })),
     defaultProfile: DEFAULT_PROFILE,
     models: Object.entries(MODELS).map(([name, m]) => ({
       name,

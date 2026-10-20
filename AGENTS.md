@@ -39,12 +39,29 @@
 ## agent-first：发邀请的体验（`src/shared/guide.ts`、`scripts/invite.ts`）
 
 - 运营侧的 agent 只做三件事：**创建 → 等 → 取结果**。说明书只有一份（`guide.ts` 的 `guideText`，接口清单、字段、`brief` 怎么写都在里面；预设/模型清单由 `index.ts` 从 `PROFILES` / `MODELS` 传入，不重复），线上是 `GET /admin/guide`，公开副本 `/llms.txt`（不含凭证和客户信息，所以公开；`runWorkerFirst` 要列它）。改接口时改 `guide.ts`，`index.ts` 顶部的注释只指向它。
-- `GET /admin/interviews/<code>/result`：`{phase, rounds, summary, context, unanswered}`，很小，轮询用；`GET /admin/interviews/<code>`（整份快照，约 75 KB）只在调试时用。
+- `GET /admin/interviews/<code>/result`：`{phase, rounds, summary, context, deliverables, unanswered}`；`deliverables` 是 `[{path, format, text}]`（开发者访谈里含 `/model.json`），`context` 是主 Markdown。`GET /admin/interviews/<code>/record` 是原始记录（交接给第二场用）；`GET /admin/interviews/<code>`（整份快照，约 75 KB）只在调试时用。
 - 创建同一个 code：409 并带 `existing.url`；删除过的 code 永久作废（`retired: true`），因为 code 是 Durable Object 的名字。删除要先确认访谈存在，再清 DO 和 R2。
-- 命令行 `scripts/invite.ts`（`vp run invite` 登记，不在门禁里：要连线上、要运营令牌）：`create|list|result|wait|rotate|delete|guide|profiles|models`，输出 JSON；`delete` 必须 `--yes`；`wait` 退出码 3 = 超时。
+- 命令行 `scripts/invite.ts`（`vp run invite` 登记，不在门禁里：要连线上、要运营令牌）：`create|list|result|wait|rotate|delete|guide|profiles|models`，输出 JSON；`create --from <客户 code>` 发起第二场；`delete` 必须 `--yes`；`wait` 退出码 3 = 超时。
 - **预置资料**（`src/shared/provided.ts`、`provided-urls.ts`、`upload.ts` 的 `Target`）：访谈开始前运营放进访谈者工作区的文件和网址，**出处只有两种、由存放目录决定**：`provided/client/`（客户提供的：算客户说过的话，进 `clientWords`，可作 `confirm` 的 basis）和 `provided/ours/`（我们做的调研：只能当线索猜选项，不能当依据，也不进 `clientWords`）。客户在页面“资料”里看得到全部（`GET …/api/provided/file`，只限 provided 的文件）。同一条上传流水线（`ingest`）服务两种目标（客户在题上传 vs 运营预置），差别只在 `Target`：目录、数量、单文件上限（客户 20MB；预置 50MB——平台天花板：请求体 100MB、内存 128MB，更大的以后走直传 R2）。`brief` 超 8000 字就报错并指向 materials（文档不限长度）。创建时 `start: false` + `POST …/materials` + `POST …/start` 让访谈者在资料齐了之后才开始；`deferred.start` 这个 kv 在，客户页就显示“运营正在放进资料”。
 - **等待时的活动**：DO 的 `onChunk` 收 `tool-call`（`describeCall` 说成人话：读了哪份资料、打开了哪个网页、在整理笔记），`live.activity` 保留最近 6 条，客户页逐条显示——读几十页资料的那一分钟不是一片空白。
 - **还没做**：完成通知/webhook（现在靠 `wait` 轮询）；超过 50MB 的资料（直传 R2）。
+
+## 两场访谈（handoff：客户 → 开发者）
+
+- 客户访谈用 `cross-border-website`；开发者访谈用 `build-brief`（`profiles/build-brief.md`）。同一个引擎、同一套词表/状态机/检查点；**没有第二套协议**——`build-brief` 的任务层明确写了“这场对象是开发者，协议里对客户的限制不适用”。
+- `node scripts/invite.ts create --from <客户 code>`：读客户访谈的 `result` + `record`，把 `RECORD.txt` 放 `source=client`（客户的话，`confirm` 的 `basis` 能在里面找到），`CONTEXT.txt` + `HANDOFF.txt` 放 `source=ours`（我们的整理，不当依据）。第二场默认 `${code}-dev`、`start:false`，建完传完再 `/start`。
+- 第二场的 `CONTEXT.md` 就是《建站交底》，结构在 `build-brief.md`；客户始终没答的题在 `HANDOFF.txt` 里，要求开发者访谈标成“待确认 / 客户”。
+- 开发者链接只发内部；不要把客户链接或第二场内容发给客户。客户补充资料用 `POST /admin/interviews/<dev code>/materials`，不改客户访谈。
+- 客户预设的“顺手要问清楚的事实”五类（现站/维护、客户自己的分类、以后谁维护、边界硬约束、参考站）在客户场就结构化成 `/facts.json`（`record_facts`，`client-facts`）；`--from` 把它作为 `ours` 带进第二场。改它要同时看 `build-brief.md` 的完成判据。
+
+## 交付物契约（deliverables + schema + gates）
+
+- 预设不只是一段话：`PROFILES`（`src/shared/profiles.ts`）里每个预设声明 `stage`、`deliverables`、`judge`。创建访谈时和 `mission` 一起**快照**进 DO 的 `kv.spec`，之后改预设不影响进行中的访谈。
+- 一份交付物 = `{ path, format: markdown | json, schema?, gates?, primary? }`。`markdown` 只判非空；`json` 用登记的 Effect Schema 解码，再跑点名的 gate。登记处在 `src/shared/deliverables.ts`；两份 schema/gate 在 `src/shared/facts.ts`（`client-facts`：五类事实、`facts-five` / `facts-no-placeholders` / `references-distinct`）和 `src/shared/model.ts`（`site-model`：BSP/内容模型、五条 gate）。
+- `site-model` 是开发者访谈的机器契约：`pages`（BSP）、`types`（routes / fields / intake）、`vocabularies`、`locales`。gate 是命名的纯函数：`pages-unique`、`pages-have-jobs`、`routes-match-pages`、`refs-exist`、`types-have-fields`。加 gate = 加函数 + 登记 + 测试，不 eval 字符串。
+- **schema 放在模型眼前**：`propose_model` 的 `inputSchema` 就是同一份 Effect Schema 转的 JSON Schema；`execute` 里再 decode + gate。`finish_interview` 对每份交付物再验一次，失败把具体错误（`pages[2]（/x/）的 job 是空的`）原样退回 agent。
+- `judge` 是独立检查者（“客户现在还能答、而你没问”）；它和交付物校验是两道门：结构由 schema/gate 判，完成度由 judge 判。开发者访谈 `judge: false`——它的完成靠 `model.json` + 开发者本人。
+- 工具只给有 JSON 交付物的预设加 `propose_model`；客户预设有 `judge: true`、只有 `CONTEXT.md`，行为和之前一样。
 
 ## 客户看得到 CONTEXT.md
 

@@ -2,7 +2,8 @@
 
 需求访谈：客户在这里一轮一轮回答 agent 的问题（每轮 1–8 题），直到 agent 把要搞懂的都搞懂。agent 自己决定每道题用什么交互方式
 （单选、多选、数字、文字、多行、富文本、链接、图片、文档），可以要客户上传资料、自己读、也可以上网看客户给的网址。
-客户不确定的题可以选“稍后再答”，一个都不会丢。产出是一份 `/CONTEXT.md`（已知 / 不知道 / 假设）和客户的原始回答与资料。
+客户不确定的题可以选“稍后再答”，一个都不会丢。产出是一份 `/CONTEXT.md`（已知 / 不知道 / 假设）、一份 `/facts.json`（五类只有客户知道的事实，给开发者访谈）和客户的原始回答与资料。
+客户访谈结束后，可以用同一个引擎开第二场（开发者访谈），把客户的话变成《建站交底》。
 
 ## 给 agent：发邀请链接
 
@@ -16,6 +17,20 @@ node scripts/invite.ts create --code acme-2026 --brief-file brief.md --material 
 node scripts/invite.ts wait --code acme-2026                              # 等到访谈结束，打印 phase / summary / context
 node scripts/invite.ts result --code acme-2026 --out CONTEXT.md           # 随时取结果；没结束时 context 只是草稿
 ```
+
+## 两场访谈（客户 → 开发者）
+
+客户访谈 `phase = done` 后，一条命令发起第二场：
+
+```sh
+node scripts/invite.ts create --from mz-041        # 默认 mz-041-dev，profile=build-brief
+node scripts/invite.ts wait --code mz-041-dev
+node scripts/invite.ts result --code mz-041-dev --out BRIEF.md --json-out model.json
+```
+
+客户访谈的 `facts.json` 由 agent 用 `record_facts` 提交，`--from` 会把它作为我们的整理带进第二场。
+第二场的 `CONTEXT.md` 是给人看的《建站交底》；`/model.json` 是给下游（草图 / zeroY）的机器契约，agent 用 `propose_model` 提交，过 `site-model` + gate 才算数。
+原始记录放 `source=client`（客户的话），访谈者的整理放 `source=ours`。开发者链接只发内部。完整步骤见 [docs/handoff.md](docs/handoff.md)。
 
 - [AGENTS.md](AGENTS.md) — 改代码时要守的规矩（设计的不变量、边界、门禁、部署）。
 - [docs/mockup.html](docs/mockup.html) — 最早的界面草图（静态）。

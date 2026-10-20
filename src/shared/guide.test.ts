@@ -3,7 +3,7 @@ import { guideText } from "./guide.ts";
 
 const g = guideText({
   origin: "https://x.example",
-  profiles: [{ name: "p1", title: "第一个预设" }],
+  profiles: [{ name: "p1", title: "第一个预设", stage: "client" }],
   defaultProfile: "p1",
   models: [
     { name: "m-on", title: "开", available: true },
@@ -17,7 +17,15 @@ describe("the agent guide", () => {
     for (const s of [
       "POST https://x.example/admin/interviews",
       "/result",
+      "/record",
       "/rotate",
+      "--from",
+      "开发者访谈",
+      "/model.json",
+      "propose_model",
+      "/facts.json",
+      "record_facts",
+      "--json-out",
       "DELETE /admin/interviews/<code>",
       "/admin/guide",
       "/llms.txt",

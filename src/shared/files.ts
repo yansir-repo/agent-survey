@@ -32,7 +32,7 @@ export const DOC_EXT = [
   "htm",
   "xml",
 ] as const;
-export const TEXT_EXT = ["txt", "md"] as const;
+export const TEXT_EXT = ["txt", "md", "json"] as const;
 
 export type FileClass = "image" | "doc" | "text";
 
@@ -75,7 +75,7 @@ export const acceptFor = (kind: "image" | "file"): string =>
 export const formatsText = (kind: "image" | "file"): string =>
   kind === "image"
     ? `支持 JPG、PNG、WebP、SVG、GIF、BMP；单个不超过 ${MAX_FILE_BYTES / 1024 / 1024}MB；可以一次选多张`
-    : `支持 PDF、Word（docx）、PowerPoint（pptx）、Excel / CSV、HTML、纯文本和图片；暂不支持压缩包、视频和旧版 .doc / .ppt；单个不超过 ${MAX_FILE_BYTES / 1024 / 1024}MB；可以一次选多个`;
+    : `支持 PDF、Word（docx）、PowerPoint（pptx）、Excel / CSV、HTML、纯文本、JSON 和图片；暂不支持压缩包、视频和旧版 .doc / .ppt；单个不超过 ${MAX_FILE_BYTES / 1024 / 1024}MB；可以一次选多个`;
 
 export const acceptsKind = (kind: "image" | "file", name: string): boolean => {
   const c = classify(name);
@@ -107,6 +107,7 @@ const MIME: Record<string, string> = {
   xml: "application/xml",
   txt: "text/plain",
   md: "text/markdown",
+  json: "application/json",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
