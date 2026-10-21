@@ -839,7 +839,7 @@ main.live {
   }
 }
 
-/* CONTEXT.md 抽屉 */
+/* NOTES.md 抽屉 */
 .drawer.wide {
   width: min(760px, 96vw);
 }

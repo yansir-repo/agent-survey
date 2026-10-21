@@ -58,14 +58,16 @@ export type InterviewView = {
   }>;
   /** 眼下这一轮在第几阶段的第几轮（回头补答那一轮没有）。 */
   readonly stage: StageView | null;
-  /** 这一轮底部“还有想补充的”里客户写的字（自动保存的）。 */
+  /** 这一轮底部“还有想补充的”里受访者写的字（自动保存的）。 */
   readonly note: string;
-  /** agent 那边出错了（回合中断）：客户可以点“重试”。 */
+  /** agent 那边出错了（回合中断）：受访者可以点“重试”。 */
   readonly error?: string;
-  /** 运营预置的网址（文件在 files 里，qid 是 provided-client / provided-ours）。 */
+  /** 提问方预置的网址（文件在 files 里，qid 是 provided-respondent / provided-inquirer）。 */
   readonly providedUrls: ReadonlyArray<ProvidedUrl>;
-  /** 运营还在放资料、访谈者还没开始。 */
+  /** 提问方还在放资料、访谈者还没开始。 */
   readonly preparing: boolean;
+  /** 开场说明：模板里写的、给受访者看的（谁在问、为什么问、大约多久）；没有就是空串。 */
+  readonly intro: string;
   /** agent 正在想（thinking）时：推理文字的尾部、已经写出来的题。只活在内存里，没有就不带。 */
   readonly live?: LiveView;
   /** 访谈结束后仍没答的题。 */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { markdownToHtml } from "./md.ts";
 
-describe("markdownToHtml (CONTEXT.md for the customer)", () => {
+describe("markdownToHtml (NOTES.md for the customer)", () => {
   it("headings, paragraphs, lists, quotes, bold", () => {
     const h = markdownToHtml("# T\n\n正文 **重点**\n\n- a\n- b\n\n> 原话");
     expect(h).toContain("<h2>T</h2>");

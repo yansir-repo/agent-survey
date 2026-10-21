@@ -291,7 +291,7 @@ describe("checkpoint: the agent supplies the claims, the system builds the quest
 });
 
 describe("no basis, no options (groundingProblems)", () => {
-  const words = "我们主要做 OEM，最近一单是德国客户，要 5000 只带 logo 的杯子。";
+  const words = "我们主要做 OEM，最近一单是德国受访者，要 5000 只带 logo 的杯子。";
   const base = { resolves: "首页第一句", why: "W" };
   const opt = { options: [{ label: "A" }, { label: "B" }] };
   const mk = (extra: Record<string, unknown>, kind: "single" | "text" = "single") => [
@@ -299,9 +299,9 @@ describe("no basis, no options (groundingProblems)", () => {
   ];
 
   it("a choice question quoting the customer verbatim passes (spacing and punctuation don't matter)", () => {
-    expect(groundingProblems(mk({ mode: "confirm", basis: "最近一单是德国客户" }), words)).toEqual(
-      [],
-    );
+    expect(
+      groundingProblems(mk({ mode: "confirm", basis: "最近一单是德国受访者" }), words),
+    ).toEqual([]);
   });
   it("a basis the customer never said is refused", () => {
     expect(

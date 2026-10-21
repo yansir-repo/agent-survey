@@ -1,6 +1,6 @@
 /**
  * 客户端：一个访谈页。服务端是唯一的真相（轮次、答案、文件都在访谈者的 Durable Object 里），这里只渲染它给的 InterviewView，
- * 把客户的输入存回去（答一题存一题）。没有框架：一个 render()，输入时只更新这一题的底部，不重绘（否则光标和富文本选区会丢）。
+ * 把受访者的输入存回去（答一题存一题）。没有框架：一个 render()，输入时只更新这一题的底部，不重绘（否则光标和富文本选区会丢）。
  */
 import "./style.css";
 import type { FileInfo, InterviewView } from "../shared/api.ts";
@@ -141,7 +141,7 @@ const save = (q: Question): void => {
     if (!empty) {
       const checked = validateAnswer(q, value);
       if (!checked.ok) {
-        // 还没写完整（比如网址写了一半）：不存，也不报错，等客户写完；离开输入框时才提示
+        // 还没写完整（比如网址写了一半）：不存，也不报错，等受访者写完；离开输入框时才提示
         return;
       }
     }
@@ -190,11 +190,11 @@ const renderThinking = (app: HTMLElement, v: InterviewView): void => {
   ).join("");
   const hasProvided = v.files.some((f) => sourceOfQid(f.qid) !== null) || v.providedUrls.length > 0;
   const head = v.preparing
-    ? "运营正在放进资料，马上开始……"
+    ? "提问方正在放进资料，马上开始……"
     : v.history.length
       ? "正在消化你的回答，想下一组问题……"
       : hasProvided
-        ? "正在阅读运营放进来的资料，然后出第一组问题……"
+        ? "正在阅读提问方放进来的资料，然后出第一组问题……"
         : "正在准备第一组问题……";
   const activity = live?.activity ?? [];
   const prev = app.querySelector<HTMLElement>(".live-reasoning");
@@ -249,6 +249,7 @@ const render = (): void => {
   app.innerHTML = `<div class="wrap"><main${cp ? ' class="cp"' : ""}>
       <div class="round-head"><h1>${label}</h1><span class="tag">${cp ? "一眼看过去，对的点“对”，不对的点最后那个自己写" : `${round.questions.length} 个问题${round.kind === "deferred" ? "" : " · 我问清楚就停，不设固定轮数"}`}</span></div>
       ${stageHtml(v)}
+      ${v.history.length === 0 && v.intro ? `<p class="lead">${esc(v.intro)}</p>` : ""}
       <p class="lead">${esc(round.intro)}</p>
       ${round.questions.map((q, i) => qHtml(q, i)).join("")}
       <details class="note-more"${noteText ? " open" : ""}><summary>还有想补充的？</summary>
@@ -716,15 +717,15 @@ const toast = (m: string): void => {
   toastTimer = window.setTimeout(() => t.classList.remove("show"), 1800);
 };
 
-/** agent 写的 CONTEXT.md：客户随时能看它现在的理解，哪里不对就在每轮底部的补充框里说。 */
+/** agent 的工作笔记 NOTES.md：受访者随时能看它现在的理解，哪里不对就在每轮底部的补充框里说。 */
 const openContext = async (): Promise<void> => {
   $("#drawer")!.innerHTML =
     `<button class="pill-btn close" data-close>关闭</button><h2>agent 现在的理解</h2>
-    <div class="why" style="color:var(--mute)">这是它的工作笔记，随访谈一路更新。哪里不对，在每一轮底部的“还有想补充的”里告诉它就行。 <a href="${esc(apiUrl("/context?download=1"))}">下载 .md</a></div>
+    <div class="why" style="color:var(--mute)">这是它的工作笔记，随访谈一路更新。哪里不对，在每一轮底部的“还有想补充的”里告诉它就行。 <a href="${esc(apiUrl("/notes?download=1"))}">下载 .md</a></div>
     <div class="md" id="mdBody">加载中……</div>`;
   $("#drawer")!.classList.add("wide");
   $("#mask")!.classList.add("open");
-  const { status, data } = await request<{ text: string }>("GET", "/context");
+  const { status, data } = await request<{ text: string }>("GET", "/notes");
   const body = $("#mdBody");
   if (body)
     body.innerHTML =
@@ -734,7 +735,7 @@ const openContext = async (): Promise<void> => {
 };
 $("#contextBtn")?.addEventListener("click", () => void openContext());
 
-/** 运营预先放进来的资料：按出处分组，点开能看转成文字的内容。 */
+/** 提问方预先放进来的资料：按出处分组，点开能看转成文字的内容。 */
 const openProvided = (): void => {
   const v = view;
   const group = (s: Source): string => {
@@ -754,9 +755,9 @@ const openProvided = (): void => {
   };
   $("#drawer")!.classList.remove("wide");
   $("#drawer")!.innerHTML =
-    `<button class="pill-btn close" data-close>关闭</button><h2>运营放进来的资料</h2>
+    `<button class="pill-btn close" data-close>关闭</button><h2>提问方放进来的资料</h2>
     <div class="why" style="color:var(--mute)">访谈者开始提问前会先读这些。“我们做的调研”是我们的判断，不是你说的；哪里不对，在每一轮底部的“还有想补充的”里告诉我们。</div>
-    ${group("client")}${group("ours")}`;
+    ${group("respondent")}${group("inquirer")}`;
   $("#mask")!.classList.add("open");
 };
 const openProvidedFile = async (path: string): Promise<void> => {

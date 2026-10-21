@@ -1,43 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { guideText } from "./guide.ts";
+import { guideText, MAX_BRIEF_CHARS } from "./guide.ts";
 
-const g = guideText({
+const text = guideText({
   origin: "https://x.example",
-  profiles: [{ name: "p1", title: "第一个预设", stage: "client" }],
-  defaultProfile: "p1",
+  templates: [{ name: "t1", title: "第一个模板", version: 3 }],
+  defaultTemplate: "t1",
   models: [
-    { name: "m-on", title: "开", available: true },
-    { name: "m-off", title: "关", available: false },
+    { name: "m1", title: "一号", available: true },
+    { name: "m2", title: "二号", available: false },
   ],
-  defaultModel: "m-on",
+  defaultModel: "m1",
 });
 
-describe("the agent guide", () => {
-  it("names every operator endpoint an agent needs, with the real origin", () => {
-    for (const s of [
-      "POST https://x.example/admin/interviews",
-      "/result",
-      "/record",
-      "/rotate",
-      "--from",
-      "开发者访谈",
-      "/model.json",
-      "propose_model",
-      "/facts.json",
-      "record_facts",
-      "--json-out",
-      "DELETE /admin/interviews/<code>",
-      "/admin/guide",
-      "/llms.txt",
+describe("guideText: the one page an inviting agent reads", () => {
+  it("says what the tool is and the three things the caller does", () => {
+    expect(text).toContain("越问越短的表单");
+    expect(text).toContain("发邀请 → 等 → 取记录");
+  });
+
+  it("lists the endpoints, the templates (with versions) and only the models that are available", () => {
+    expect(text).toContain("POST https://x.example/admin/interviews");
+    expect(text).toContain("`t1`（第一个模板，v3）");
+    expect(text).toContain("`m1`");
+    expect(text).not.toContain("`m2`");
+  });
+
+  it("documents the fields of a creation and the shape of the record, and that findings are checked for source, not meaning", () => {
+    for (const field of [
+      "criteria",
+      "respondent",
+      "intro",
+      "pace",
+      "capabilities",
+      "notify",
+      "language",
     ])
-      expect(g).toContain(s);
+      expect(text).toContain(`\`${field}\``);
+    expect(text).toContain("核对的是出处，不是意思");
+    expect(text).toContain("digest");
+    expect(text).toContain(String(MAX_BRIEF_CHARS));
   });
-  it("lists the live profiles and only the models that are available", () => {
-    expect(g).toContain("`p1`（第一个预设）");
-    expect(g).toContain("`m-on`");
-    expect(g).not.toContain("`m-off`");
-  });
-  it("never carries a credential", () => {
-    expect(g).not.toMatch(/Bearer [A-Za-z0-9]{16,}/);
+
+  it("says the callback is a sketch: once, no retry, no signature", () => {
+    expect(text).toContain("不重试、不签名、不保证送达");
   });
 });

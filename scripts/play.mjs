@@ -6,7 +6,7 @@
  *   node scripts/play.mjs --base http://localhost:5173 --code smoke-1 [--token <ADMIN_TOKEN>] [--brief "…"] [--max-rounds 6]
  *
  * It creates the interview, skips the first question of every round (to exercise "稍后再答" and the catch-up round),
- * uploads a small text file to file/image questions, and prints what the agent ended up with (CONTEXT.md).
+ * uploads a small text file to file/image questions, and prints what the agent ended up with (result bundle).
  * The token comes from --token, $ADMIN_TOKEN or ./.dev.vars.
  */
 import { readFileSync } from "node:fs";
@@ -145,6 +145,5 @@ for (;;) {
   console.log(`  submit → ${s.status} ${s.status === 200 ? "" : JSON.stringify(s.data)}`);
 }
 
-const snap = await (await admin("GET", `/admin/interviews/${code}`)).json();
-console.log("\n--- CONTEXT.md ---\n" + (snap.context ?? "(none)"));
-console.log(`\nsummary: ${snap.summary ?? "(none)"}`);
+const res = await (await admin("GET", `/admin/interviews/${code}/result?format=md`)).text();
+console.log("\n--- result ---\n" + res);

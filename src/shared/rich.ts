@@ -1,5 +1,5 @@
 /**
- * 富文本：客户在编辑框里写的 HTML 是不可信输入。这里只做两件事，且只在这里做：
+ * 富文本：受访者在编辑框里写的 HTML 是不可信输入。这里只做两件事，且只在这里做：
  *  - sanitizeRich：白名单净化（只留 b i u ul ol li p br a[href]；其余标签一律去掉标签保留文字）；
  *  - richToMarkdown：净化后的 HTML → Markdown，给 agent 读（agent 不读 HTML）。
  * 不依赖 DOM：Worker 里没有。

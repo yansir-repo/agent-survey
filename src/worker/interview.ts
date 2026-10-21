@@ -6,12 +6,12 @@
  * 流程判断一律在 shared/machine.ts（纯函数）：这里把事件喂给它、照着返回的 effect 去做、把结果存下来。
  *
  * 存什么：rounds 每一轮问了什么（agent 的和系统补的“回头补答”）；answers 当前答案（自动保存）和“稍后再答”；
- * files 客户上传的文件（原件在 R2，转成文字的 Markdown 在工作区 /uploads/…）；kv 状态机、背景、本回合的结果标记。
+ * files 受访者上传和提问方预置的文件（原件在 R2，转成文字的 Markdown 在工作区 /uploads/…、/provided/…）；
+ * pages agent 读过的网页；findings agent 的解读（带可核对的依据）；kv 状态机、背景、本回合的结果标记。
  */
 import { Clock, Context, Effect, Schema } from "effect";
 import { Clef } from "./clef.ts";
 import type { FileInfo, InterviewView, RoundView } from "../shared/api.ts";
-import { checkDeliverable, type Deliverable } from "../shared/deliverables.ts";
 import { markdownPath } from "../shared/files.ts";
 import { providedListing, sourceOfQid, type ProvidedUrl } from "../shared/provided.ts";
 import {
@@ -24,8 +24,22 @@ import {
   type Event,
   type Machine,
 } from "../shared/machine.ts";
-import { DEFAULT_PROFILE, PROFILES } from "../shared/profiles.ts";
-import { CONTEXT_PATH, promptText } from "../shared/prompt.ts";
+import { NOTES_PATH, promptText } from "../shared/prompt.ts";
+import {
+  DEFAULT_SPEC,
+  DEFAULT_TEMPLATE,
+  TEMPLATES,
+  specOf,
+  type Spec,
+} from "../shared/templates.ts";
+import { checkFinding, type Finding, type FindingInput, type Sources } from "../shared/findings.ts";
+import {
+  buildBundle,
+  digestOf,
+  questionOf,
+  type Bundle,
+  type BundleInput,
+} from "../shared/bundle.ts";
 import {
   MAX_NOTE,
   parseAskRound,
@@ -37,14 +51,15 @@ import {
 } from "../shared/questions.ts";
 import { compoundProblems, readCompound, titleRequest } from "../shared/clef-gates.ts";
 import {
-  JUDGE_SYSTEM,
+  CRITERION_SYSTEM,
   MAX_FINISH_BLOCKS,
-  askableOf,
+  criterionUser,
   finishRefusal,
-  judgeUser,
-  parseJudge,
+  parseVerdict,
+  unmetOf,
+  type Judged,
 } from "../shared/finish-judge.ts";
-import { recordText, type RecordRound } from "../shared/record.ts";
+import { recordText, valueText, type RecordRound } from "../shared/record.ts";
 import { repeatsPending } from "../shared/repeat.ts";
 import { FetchOut, SearchOut, formatSearch } from "../shared/web.ts";
 import { answersMarkdown, type Answered } from "../shared/render.ts";
@@ -83,6 +98,10 @@ export class Host extends Context.Service<
     ) => Promise<{ readonly status: number; readonly json: unknown } | null>;
     /** 给 agent 发一条用户消息（幂等键相同只发一次）。 */
     readonly send: (text: string, key: string) => Promise<void>;
+    /** 对外的根地址（拼结果链接用）。 */
+    readonly origin: string;
+    /** 完成回调：POST 一次 JSON，不重试；返回 HTTP 状态（网络出错 = null），从不抛。 */
+    readonly notify: (url: string, body: unknown) => Promise<number | null>;
   }
 >()("grill-me/Host") {}
 
@@ -90,18 +109,6 @@ export class Host extends Context.Service<
 export type Result = { readonly ok: boolean; readonly error?: string; readonly r2Key?: string };
 const OK: Result = { ok: true };
 const refuse = (error: string): Result => ({ ok: false, error });
-
-/** 这场访谈的交付物契约：创建时快照进 kv，之后改预设不影响进行中的访谈。 */
-export type Spec = {
-  readonly stage: "client" | "dev";
-  readonly deliverables: ReadonlyArray<Deliverable>;
-  readonly judge: boolean;
-};
-export const DEFAULT_SPEC: Spec = {
-  stage: "client",
-  deliverables: [{ path: CONTEXT_PATH, format: "markdown", primary: true }],
-  judge: true,
-};
 
 // ---- SQLite ----
 
@@ -112,6 +119,12 @@ const q = (sql: string, ...params: ReadonlyArray<SqlValue>) =>
   });
 
 export const ensureSchema = Effect.gen(function* () {
+  yield* q(
+    "CREATE TABLE IF NOT EXISTS pages (n INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE, text TEXT NOT NULL, fetched_at INTEGER NOT NULL)",
+  );
+  yield* q(
+    "CREATE TABLE IF NOT EXISTS findings (id INTEGER PRIMARY KEY AUTOINCREMENT, statement TEXT NOT NULL, basis TEXT NOT NULL, at INTEGER NOT NULL)",
+  );
   yield* q(
     "CREATE TABLE IF NOT EXISTS rounds (id TEXT PRIMARY KEY, seq INTEGER NOT NULL, kind TEXT NOT NULL, intro TEXT NOT NULL, understanding TEXT NOT NULL, questions TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL)",
   );
@@ -138,13 +151,11 @@ const bump = (name: string) =>
   );
 const kvDel = (k: string) => q("DELETE FROM kv WHERE k = ?", k);
 
-/** 创建时存下的交付物契约；老访谈没有 = 客户场的默认（CONTEXT.md + 检查者）。 */
+/** 创建时存下的快照（模板 + 这次的覆盖）；老访谈存的是交付物时代的形状，缺的字段用默认。 */
 const loadSpec = Effect.map(kvGet("spec"), (raw): Spec => {
   if (raw === null) return DEFAULT_SPEC;
-  const parsed = JSON.parse(raw) as Spec;
-  return Array.isArray(parsed.deliverables) && parsed.deliverables.length > 0
-    ? parsed
-    : DEFAULT_SPEC;
+  const parsed = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))(raw);
+  return parsed._tag === "Success" ? specOf(parsed.success) : DEFAULT_SPEC;
 });
 
 const loadMachine = Effect.map(kvGet("machine"), (raw) =>
@@ -242,10 +253,33 @@ const perform = (fx: MachineEffect, m: Machine, answers?: Submission) =>
         );
         return openedDeferred(m, `d${seq}`);
       }
-      case "done":
+      case "done": {
+        yield* notifyDone;
         return m;
+      }
     }
   });
+
+/**
+ * 访谈结束时的完成回调（第一版只是个样子）：创建时填了 `notify` 就 POST 一次 `{ id, phase, resultUrl }`。
+ * 不重试、不签名、不保证送达；结果记在 kv `notify`，调用方仍可以轮询。出现“回调丢了导致下游没动”的那一次，再补重试和签名。
+ */
+const notifyDone = Effect.gen(function* () {
+  const host = yield* Host;
+  const { notify } = yield* loadSpec;
+  if (notify === "") return;
+  const status = yield* Effect.promise(() =>
+    host.notify(notify, {
+      id: host.name,
+      phase: "done",
+      resultUrl: `${host.origin}/admin/interviews/${host.name}/result`,
+    }),
+  );
+  yield* kvSet(
+    "notify",
+    JSON.stringify({ url: notify, status, at: yield* Clock.currentTimeMillis }),
+  );
+});
 
 /** 把事件喂给状态机，照它返回的 effect 去做，存下新状态。 */
 const apply = (e: Event, answers?: Submission) =>
@@ -259,12 +293,12 @@ const apply = (e: Event, answers?: Submission) =>
 
 // ---- agent 的工具 ----
 
-/** 客户说过的话：邀请说明 + 所有回答 + 每轮的补充。出题者的 basis 必须逐字出自这里。 */
-const clientWords = Effect.gen(function* () {
+/** 受访者说过的话：背景 + 所有回答 + 每轮的补充 + 他提供的预置资料。出题者的 basis 必须逐字出自这里。 */
+const respondentWords = Effect.gen(function* () {
   const host = yield* Host;
-  // 客户提供的预置资料（不含“我们做的调研”）也算他说过的话
+  // 受访者提供的预置资料（不含提问方做的调研）也算他说过的话
   const provided = yield* Effect.forEach(
-    (yield* fileInfos).filter((f) => sourceOfQid(f.qid) === "client" && f.status === "ok"),
+    (yield* fileInfos).filter((f) => sourceOfQid(f.qid) === "respondent" && f.status === "ok"),
     (f) => Effect.promise(() => host.readFile(`/${markdownPath(f.path)}`)),
   );
   const answers = yield* q("SELECT value FROM answers");
@@ -309,15 +343,36 @@ export const askRound = (raw: unknown) =>
     if (checkpointForced(yield* loadMachine))
       return {
         ok: false,
-        message: `现在必须做检查点：先更新 ${CONTEXT_PATH}，再调用 checkpoint，不能 ask_round。`,
+        message: `现在必须做检查点：先更新 ${NOTES_PATH}，再调用 checkpoint，不能 ask_round。`,
+      };
+    const spec = yield* loadSpec;
+    const askedRounds = (yield* roundRows).filter((r) => text(r, "kind") === "agent").length;
+    if (spec.pace.maxRounds !== null && askedRounds >= spec.pace.maxRounds)
+      return {
+        ok: false,
+        message: `这场访谈最多问 ${spec.pace.maxRounds} 轮，已经问满了：不要再 ask_round，调用 finish_interview。`,
       };
     const used = new Set((yield* allQuestions).map((x) => x.id));
-    const parsed = parseAskRound(raw, used, yield* clientWords);
+    const parsed = parseAskRound(raw, used, yield* respondentWords);
     if (!parsed.ok) {
       yield* bump("askRefused");
       yield* kvSet(`refusal.${yield* Clock.currentTimeMillis}`, parsed.error.slice(0, 600));
       return { ok: false, message: `这一轮没有发出：${parsed.error}。改正后重新调用 ask_round。` };
     }
+    if (spec.pace.perRound !== null && parsed.round.questions.length > spec.pace.perRound)
+      return {
+        ok: false,
+        message: `这场访谈每轮最多 ${spec.pace.perRound} 题，这一轮有 ${parsed.round.questions.length} 题。拆开或去掉几题后重新调用 ask_round。`,
+      };
+    if (
+      !spec.capabilities.uploads &&
+      parsed.round.questions.some((x) => x.kind === "image" || x.kind === "file")
+    )
+      return {
+        ok: false,
+        message:
+          "这场访谈不收文件：去掉 image / file 题（要资料就问“有没有、在哪、大概多少”）后重新调用 ask_round。",
+      };
     const asked = yield* allQuestions;
     const repeats = repeatsPending(
       parsed.round.questions,
@@ -373,17 +428,17 @@ export const askRound = (raw: unknown) =>
     );
     yield* kvSet(`delta.${id}`, parsed.round.delta);
     yield* kvSet("turn.asked", id);
-    return { ok: true, message: `第 ${seq} 轮已发给客户。本回合结束，等客户回答。` };
+    return { ok: true, message: `第 ${seq} 轮已发给受访者。本回合结束，等他回答。` };
   });
 
-/** 一个文本的指纹（长度 + 简单哈希）：检查点要求 CONTEXT.md 和上一个检查点相比真的改过。 */
+/** 一个文本的指纹（长度 + 简单哈希）：检查点要求 NOTES.md 和上一个检查点相比真的改过。 */
 const fingerprint = (t: string): string => {
   let h = 0;
   for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
   return `${t.length}:${h}`;
 };
 
-/** 检查点：系统要求时，agent 先重写 CONTEXT.md，再把这一阶段听到的要点交给客户逐条确认。 */
+/** 检查点：系统要求时，agent 先重写 NOTES.md，再把这一阶段听到的要点交给受访者逐条确认。 */
 export const checkpoint = (raw: unknown) =>
   Effect.gen(function* () {
     const host = yield* Host;
@@ -393,14 +448,14 @@ export const checkpoint = (raw: unknown) =>
         ok: false,
         message: `这个阶段还没问满 ${STAGE_ROUNDS} 轮，还不能做检查点。继续 ask_round，或者 finish_interview。`,
       };
-    const ctx = yield* Effect.promise(() => host.readFile(CONTEXT_PATH));
+    const ctx = yield* Effect.promise(() => host.readFile(NOTES_PATH));
     if (!ctx || ctx.trim() === "")
-      return { ok: false, message: `先把 ${CONTEXT_PATH} 写好，再做检查点。` };
+      return { ok: false, message: `先把 ${NOTES_PATH} 写好，再做检查点。` };
     const print = fingerprint(ctx);
     if (print === (yield* kvGet("ctx.fp")))
       return {
         ok: false,
-        message: `${CONTEXT_PATH} 和上一个检查点相比没有变化：先把它重写整理一遍（合并、去重、改正），再调用 checkpoint。`,
+        message: `${NOTES_PATH} 和上一个检查点相比没有变化：先把它重写整理一遍（合并、去重、改正），再调用 checkpoint。`,
       };
     const parsed = parseCheckpoint(raw, m.stage);
     if (!parsed.ok) {
@@ -422,11 +477,11 @@ export const checkpoint = (raw: unknown) =>
     yield* kvSet("turn.checkpoint", "1");
     return {
       ok: true,
-      message: `第 ${m.stage + 1} 阶段的检查点已发给客户。本回合结束，等他确认。`,
+      message: `第 ${m.stage + 1} 阶段的检查点已发给受访者。本回合结束，等他确认。`,
     };
   });
 
-/** 把访谈的原始记录（题、回答、补充、跳过的、上传文件的开头）拼成检查者看的文本：事实在这里，不在 CONTEXT.md。 */
+/** 把访谈的原始记录（题、回答、补充、跳过的、上传文件的开头）拼成检查者看的文本：事实在这里，agent 的解读不是。 */
 const buildRecord = Effect.gen(function* () {
   const host = yield* Host;
   const rows = yield* roundRows;
@@ -460,88 +515,71 @@ const buildRecord = Effect.gen(function* () {
   return recordText((yield* kvGet("brief")) ?? "", rounds, heads);
 });
 
-/** 运营侧读原始记录：交接给下一场（开发者访谈）用。和检查者看到的是同一份事实。 */
-export const record = buildRecord;
-
 const ChatOut = Schema.Struct({
   choices: Schema.Array(Schema.Struct({ message: Schema.Struct({ content: Schema.String }) })),
 });
 
-/** 独立的检查者对着原始记录和任务判据找“现在就能问”的事。null = 检查者不可用（读不出来也算）。 */
-const judgeFinish = Effect.gen(function* () {
-  const host = yield* Host;
-  const { mission } = yield* beforeTurnContext;
-  const record = yield* buildRecord;
-  const asked = yield* allQuestions;
-  const pending = (yield* loadMachine).deferred.flatMap((id) => {
-    const hit = asked.find((x) => x.id === id);
-    return hit ? [{ id, title: hit.title }] : [];
+/**
+ * 独立的检查者对着原始记录，对**每一条**验收条款单独判一次（一条一问，并行）。
+ * 依据必须是记录里的一句原话，在 `parseVerdict` 里机械核对。null = 检查者不可用（有一条读不出来就算）。
+ */
+const judgeCriteria = (criteria: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const host = yield* Host;
+    const goal = (yield* beforeTurnContext).goal;
+    const record = yield* buildRecord;
+    const one = (criterion: string) =>
+      Effect.gen(function* () {
+        const res = yield* Effect.promise(() =>
+          host.deepseek(
+            "chat/completions",
+            {
+              model: "deepseek-flash",
+              thinking: { type: "disabled" },
+              temperature: 0,
+              max_tokens: 400,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: CRITERION_SYSTEM },
+                { role: "user", content: criterionUser(goal, criterion, record) },
+              ],
+            },
+            60_000,
+          ),
+        );
+        if (res === null || res.status !== 200) return null;
+        const out = Schema.decodeUnknownResult(ChatOut)(res.json);
+        const content =
+          out._tag === "Success" ? out.success.choices[0]?.message.content : undefined;
+        return content === undefined ? null : parseVerdict(content, criterion, record);
+      });
+    const all = yield* Effect.forEach(criteria, one, { concurrency: 4 });
+    return all.every((j): j is Judged => j !== null) ? (all as ReadonlyArray<Judged>) : null;
   });
-  const res = yield* Effect.promise(() =>
-    host.deepseek(
-      "chat/completions",
-      {
-        model: "deepseek-flash",
-        thinking: { type: "disabled" },
-        temperature: 0,
-        max_tokens: 1500,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: JUDGE_SYSTEM },
-          { role: "user", content: judgeUser(mission, record, pending) },
-        ],
-      },
-      90_000,
-    ),
-  );
-  if (res === null || res.status !== 200) return null;
-  const out = Schema.decodeUnknownResult(ChatOut)(res.json);
-  const content = out._tag === "Success" ? out.success.choices[0]?.message.content : undefined;
-  return content === undefined ? null : parseJudge(content);
-});
 
 export const finishInterview = (summary: string) =>
   Effect.gen(function* () {
-    const host = yield* Host;
     const spec = yield* loadSpec;
 
-    // 交付物先验：结构不对（JSON 不过 schema / gate）就不用再请检查者看“还缺什么”了。
-    const problems: string[] = [];
-    for (const d of spec.deliverables) {
-      const text = yield* Effect.promise(() => host.readFile(d.path));
-      if (text === null || text.trim() === "") {
-        problems.push(`${d.path} 还没写`);
-        continue;
-      }
-      const checked = checkDeliverable(d, text);
-      if (!checked.ok) problems.push(`${d.path}：\n${checked.error}`);
-    }
-    if (problems.length > 0) {
-      yield* bump("deliverableRefused");
-      return {
-        ok: false,
-        message: `还不能结束：\n${problems.join("\n\n")}\n\n改完再调用 finish_interview。`,
-      };
-    }
-
-    // 验收：回头补答那一轮是最后一轮，不再拦。其余情况对着原始记录查“现在就能问”的事；最多拦 MAX_FINISH_BLOCKS 次，不会死锁。
-    if (spec.judge && !(yield* loadMachine).deferredRoundOpened) {
-      const items = yield* judgeFinish;
-      if (items === null) yield* bump("judgeDown");
+    // 验收：没有验收条款 = 不验证。回头补答那一轮是最后一轮，不再拦。其余情况逐条对着原始记录核对；
+    // 不满足的最多拦 MAX_FINISH_BLOCKS 次，不会死锁，拦满之后放行并把没满足的写进记录。
+    if (spec.criteria.length > 0 && !(yield* loadMachine).deferredRoundOpened) {
+      const judged = yield* judgeCriteria(spec.criteria);
+      if (judged === null) yield* bump("judgeDown");
       else {
-        yield* kvSet("judge.last", JSON.stringify(items));
-        const askable = askableOf(items, new Set((yield* loadMachine).deferred));
+        yield* kvSet("judge.last", JSON.stringify(judged));
+        const unmet = unmetOf(judged);
         const blocked = Number((yield* kvGet("finish.blocked")) ?? "0") || 0;
-        if (askable.length > 0 && blocked < MAX_FINISH_BLOCKS) {
+        if (unmet.length > 0 && blocked < MAX_FINISH_BLOCKS) {
           yield* kvSet("finish.blocked", String(blocked + 1));
           yield* bump("finishBlocked");
           yield* kvSet(
             `refusal.${yield* Clock.currentTimeMillis}`,
-            `结束被退回：${askable.map((i) => i.item).join("；")}`.slice(0, 600),
+            `结束被退回：${unmet.map((j) => j.criterion).join("；")}`.slice(0, 600),
           );
-          return { ok: false, message: finishRefusal(askable, MAX_FINISH_BLOCKS - blocked - 1) };
+          return { ok: false, message: finishRefusal(unmet, MAX_FINISH_BLOCKS - blocked - 1) };
         }
-        if (askable.length > 0) yield* kvSet("unresolved", JSON.stringify(askable));
+        if (unmet.length > 0) yield* kvSet("unmet", JSON.stringify(unmet.map((j) => j.criterion)));
       }
     }
     yield* kvSet("summary", summary);
@@ -549,25 +587,61 @@ export const finishInterview = (summary: string) =>
     return { ok: true, message: "访谈结束。" };
   });
 
-/**
- * 结构化交付物的工具实现（`propose_model` / `record_facts`）。校验通过才写文件；
- * 失败原样退回错误，agent 可以改完再提交。它不结束回合——结束还是 finish_interview。
- */
-export const writeJsonDeliverable = (raw: unknown) =>
-  Effect.gen(function* () {
-    const host = yield* Host;
-    const spec = yield* loadSpec;
-    const d = spec.deliverables.find((x) => x.format === "json");
-    if (!d)
-      return { ok: false, message: "这个访谈没有结构化交付物：用写文件工具维护 CONTEXT.md。" };
-    const text = typeof raw === "string" ? raw : JSON.stringify(raw);
-    const checked = checkDeliverable(d, text);
-    if (!checked.ok) {
-      yield* bump("jsonRefused");
-      return { ok: false, message: `没有通过，改完再提交：\n${checked.error}` };
+/** 记录里能查到文字的地方：agent 的解读要靠它核对依据。 */
+const sourcesOfRecord = Effect.gen(function* () {
+  const host = yield* Host;
+  const questions = new Map((yield* allQuestions).map((x) => [x.id, x]));
+  const answers = new Map<string, string>();
+  for (const a of yield* q("SELECT qid, value FROM answers"))
+    if (typeof a["value"] === "string") {
+      const question = questions.get(text(a, "qid"));
+      if (question)
+        answers.set(question.id, valueText(question.kind, JSON.parse(a["value"]) as unknown));
     }
-    yield* Effect.promise(() => host.writeFile(d.path, checked.text));
-    return { ok: true, message: `${d.path} 已更新，并通过了校验。` };
+  const notes = new Map(
+    (yield* q("SELECT k, v FROM kv WHERE k LIKE 'note:%'")).map((r) => [
+      text(r, "k").slice(5),
+      text(r, "v"),
+    ]),
+  );
+  const pages = new Map(
+    (yield* q("SELECT n, text FROM pages")).map((r) => [String(num(r, "n")), text(r, "text")]),
+  );
+  const files = new Map<string, string>();
+  for (const f of yield* fileInfos) {
+    const t = yield* Effect.promise(() => host.readFile(`/${markdownPath(f.path)}`));
+    if (t !== null) files.set(f.path, t);
+  }
+  return {
+    answer: (id: string) => answers.get(id) ?? null,
+    note: (id: string) => notes.get(id) ?? null,
+    file: (path: string) => files.get(path) ?? null,
+    page: (n: string) => pages.get(n) ?? null,
+  } satisfies Sources;
+});
+
+/**
+ * agent 的解读（`note_finding`）：一句结论 + 依据（记录里的一处 + 逐字的一句话）。引擎核对引文真的在那里；
+ * 找不到就原样退回。它不结束回合。解读和受访者的原话分开放：记录里是两块。
+ */
+export const noteFinding = (raw: unknown) =>
+  Effect.gen(function* () {
+    const checked = checkFinding(raw, yield* sourcesOfRecord);
+    if (!checked.ok) {
+      yield* bump("findingRefused");
+      return {
+        ok: false,
+        message: `这条解读没有记下：${checked.error}。改正后重新调用 note_finding。`,
+      };
+    }
+    const f: FindingInput = checked.value;
+    yield* q(
+      "INSERT INTO findings (statement, basis, at) VALUES (?, ?, ?)",
+      f.statement,
+      JSON.stringify(f.basis),
+      yield* Clock.currentTimeMillis,
+    );
+    return { ok: true, message: "解读已记下（和受访者的原话分开放）。" };
   });
 
 const MAX_PAGE_BYTES = 1_500_000;
@@ -639,17 +713,34 @@ const fetchViaDeepseek = (url: string) =>
     return page;
   });
 
-export const fetchPage = (raw: string) =>
+/** 读过的网页存进记录（同一个网址只留最新的一份）：agent 的解读靠 `page:<n>` 引用它。 */
+const savePage = (url: string, body: string) =>
   Effect.gen(function* () {
-    const direct = yield* fetchDirect(raw);
-    if (direct.ok) return direct.text;
-    const checked = checkPublicUrl(raw);
-    if (!checked.ok) return direct.reason; // 守卫不过的网址不拿去兜底
-    const viaDs = yield* fetchViaDeepseek(checked.url.href);
-    return viaDs.ok ? viaDs.text : `${direct.reason}；${viaDs.reason}`;
+    yield* q(
+      "INSERT INTO pages (url, text, fetched_at) VALUES (?, ?, ?) ON CONFLICT(url) DO UPDATE SET text = excluded.text, fetched_at = excluded.fetched_at",
+      url,
+      body,
+      yield* Clock.currentTimeMillis,
+    );
+    return num((yield* q("SELECT n FROM pages WHERE url = ?", url))[0] ?? {}, "n");
   });
 
-/** 联网搜索（DeepSeek Search API）：行业、法规、同行、公司背景——公开信息先查，别拿来问客户。 */
+export const fetchPage = (raw: string) =>
+  Effect.gen(function* () {
+    const checked = checkPublicUrl(raw);
+    if (!checked.ok) return `不能读这个网址：${checked.error}`; // 守卫不过的网址不拿去兜底
+    const direct = yield* fetchDirect(raw);
+    const page: Page = direct.ok
+      ? direct
+      : yield* Effect.map(fetchViaDeepseek(checked.url.href), (via) =>
+          via.ok ? via : failed(`${direct.reason}；${via.reason}`),
+        );
+    if (!page.ok) return page.reason;
+    const n = yield* savePage(checked.url.href, page.text);
+    return `（这个网页在记录里的编号是 page:${n}；写解读引用它时用这个）\n${page.text}`;
+  });
+
+/** 联网搜索（DeepSeek Search API）：行业、法规、同行、公司背景——公开信息先查，别拿来问受访者。 */
 export const searchWeb = (raw: string) =>
   Effect.gen(function* () {
     const host = yield* Host;
@@ -658,7 +749,7 @@ export const searchWeb = (raw: string) =>
     const res = yield* Effect.promise(() =>
       host.deepseek("v1/tools/search", { query, count: 6 }, 15_000),
     );
-    if (res === null) return "联网搜索现在不可用。需要的信息直接问客户。";
+    if (res === null) return "联网搜索现在不可用。需要的信息直接问受访者。";
     if (res.status !== 200) return `搜索失败（${res.status}）。`;
     const out = Schema.decodeUnknownResult(SearchOut)(res.json);
     return out._tag === "Success" ? formatSearch(query, out.success) : "搜索返回的内容读不出来。";
@@ -669,13 +760,14 @@ export const turnHasOutcome = Effect.gen(function* () {
   return (yield* kvGet("turn.asked")) !== null || (yield* kvGet("turn.finished")) !== null;
 });
 
-/** 每回合的指令要用的：任务层（创建访谈时存下的快照；老访谈没有就用默认预设）和背景。 */
+/** 每回合的指令要用的：目标（创建访谈时存下的快照；老访谈存的是 mission，再老的没有就用默认模板）、背景和这场的限制。 */
 export const beforeTurnContext = Effect.gen(function* () {
-  const stored = yield* kvGet("mission");
+  const stored = (yield* kvGet("goal")) ?? (yield* kvGet("mission"));
   return {
-    mission:
-      stored !== null && stored.trim() !== "" ? stored : (PROFILES[DEFAULT_PROFILE]?.mission ?? ""),
+    goal:
+      stored !== null && stored.trim() !== "" ? stored : (TEMPLATES[DEFAULT_TEMPLATE]?.goal ?? ""),
     brief: (yield* kvGet("brief")) ?? "",
+    spec: yield* loadSpec,
   };
 });
 
@@ -710,7 +802,7 @@ export const onTurnEnded = (completed: boolean) =>
 
 // ---- Worker 调用的程序 ----
 
-/** 第一回合：把背景和运营预先放进来的资料（按出处标明）一起交给访谈者。只会发一次。 */
+/** 第一回合：把背景和提问方预先放进来的资料（按出处标明）一起交给访谈者。只会发一次。 */
 const startTurn = Effect.gen(function* () {
   const host = yield* Host;
   yield* kvDel("deferred.start");
@@ -722,13 +814,13 @@ const startTurn = Effect.gen(function* () {
   );
 });
 
-/** start = false：先建好、等运营把资料放完再 start（客户那时看到的是“正在准备”）。 */
-export const begin = (brief: string, mission: string, model: string, start = true, spec = "") =>
+/** start = false：先建好、等提问方把资料放完再 start（受访者那时看到的是“正在准备”）。 */
+export const begin = (brief: string, goal: string, model: string, start = true, spec = "") =>
   Effect.gen(function* () {
     if ((yield* kvGet("begun")) !== null) return;
     yield* kvSet("begun", "1");
     yield* kvSet("brief", brief);
-    yield* kvSet("mission", mission);
+    yield* kvSet("goal", goal);
     yield* kvSet("model", model);
     yield* kvSet("spec", spec.trim() === "" ? JSON.stringify(DEFAULT_SPEC) : spec);
     yield* saveMachine(initial);
@@ -745,7 +837,7 @@ const providedUrls = Effect.map(kvGet("provided.urls"), (raw): ProvidedUrl[] =>
   raw === undefined || raw === null ? [] : (JSON.parse(raw) as ProvidedUrl[]),
 );
 
-/** 运营预置的网址（访谈者用 fetch_page 读；客户在页面上看得到）。重复的网址只留一条。 */
+/** 提问方预置的网址（访谈者用 fetch_page 读；受访者在页面上看得到）。重复的网址只留一条。 */
 export const addUrls = (urls: ReadonlyArray<ProvidedUrl>) =>
   Effect.gen(function* () {
     const have = yield* providedUrls;
@@ -754,7 +846,7 @@ export const addUrls = (urls: ReadonlyArray<ProvidedUrl>) =>
     return merged.length;
   });
 
-/** 客户这边一次轮询看到的全部。 */
+/** 受访者这边一次轮询看到的全部。 */
 export const view = Effect.gen(function* () {
   const host = yield* Host;
   const m = yield* loadMachine;
@@ -802,6 +894,7 @@ export const view = Effect.gen(function* () {
     files: yield* fileInfos,
     providedUrls: yield* providedUrls,
     preparing: (yield* kvGet("deferred.start")) !== null,
+    intro: (yield* loadSpec).intro,
     history,
     understanding: lastAgent
       ? (JSON.parse(text(lastAgent, "understanding")) as InterviewView["understanding"])
@@ -962,9 +1055,19 @@ export const removeFile = (path: string) =>
     return out;
   });
 
-/** 运营看的：全部轮次和答案、交付物、背景、结局（JSON 文本）。 */
+const findingsRows = Effect.map(
+  q("SELECT id, statement, basis, at FROM findings ORDER BY id"),
+  (rows): Finding[] =>
+    rows.map((r) => ({
+      id: num(r, "id"),
+      statement: text(r, "statement"),
+      basis: JSON.parse(text(r, "basis")) as Finding["basis"],
+      at: num(r, "at"),
+    })),
+);
+
+/** 提问方看的：全部轮次和答案、背景、协议摩擦的计数、结局（JSON 文本，调试用）。 */
 export const snapshot = Effect.gen(function* () {
-  const delivered = yield* readDeliverables;
   const rows = yield* roundRows;
   const rounds: unknown[] = [];
   for (const r of rows) {
@@ -982,7 +1085,8 @@ export const snapshot = Effect.gen(function* () {
   }
   return JSON.stringify({
     brief: yield* kvGet("brief"),
-    mission: yield* kvGet("mission"),
+    goal: (yield* beforeTurnContext).goal,
+    spec: yield* loadSpec,
     modelName: yield* kvGet("model"),
     stats: Object.fromEntries(
       (yield* q("SELECT k, v FROM kv WHERE k LIKE 'stat.%'")).map((r) => [
@@ -993,13 +1097,12 @@ export const snapshot = Effect.gen(function* () {
     refusals: (yield* q("SELECT v FROM kv WHERE k LIKE 'refusal.%' ORDER BY k")).map((r) =>
       text(r, "v"),
     ),
-    unresolved: JSON.parse((yield* kvGet("unresolved")) ?? "[]") as unknown,
+    unmet: JSON.parse((yield* kvGet("unmet")) ?? "[]") as unknown,
     judge: JSON.parse((yield* kvGet("judge.last")) ?? "[]") as unknown,
+    notify: JSON.parse((yield* kvGet("notify")) ?? "null") as unknown,
     machine: yield* loadMachine,
     summary: yield* kvGet("summary"),
-    context: delivered.context,
-    spec: delivered.spec,
-    deliverables: delivered.files,
+    findings: yield* findingsRows,
     rounds,
     files: yield* fileInfos,
     view: yield* view,
@@ -1012,47 +1115,80 @@ export const readWorkspace = (path: string) =>
     return yield* Effect.promise(() => host.readFile(path));
   });
 
-/** 交付物快照：给 result / snapshot 用。JSON 交付物解析成对象；坏的 JSON 不抛，给 null。 */
-const readDeliverables = Effect.gen(function* () {
-  const host = yield* Host;
-  const spec = yield* loadSpec;
-  const files: Array<{ path: string; format: "markdown" | "json"; text: string }> = [];
-  let context = "";
-  for (const d of spec.deliverables) {
-    const text = (yield* Effect.promise(() => host.readFile(d.path))) ?? "";
-    if (d.primary) context = text;
-    files.push({ path: d.path, format: d.format, text });
-  }
-  if (context === "") context = files.find((f) => f.format === "markdown")?.text ?? "";
-  return { spec, files, context };
-});
+/** `result` 的 RPC 形状：一份记录加它的摘要（Durable Object 的 RPC 类型对推断不友好，显式写出来）。 */
+export type ResultBundle = Bundle & { readonly digest: string };
 
-/** `outcome` 的 RPC 形状（Durable Object 的 RPC 类型对推断不友好，显式写出来）。 */
-export type Outcome = {
-  readonly phase: InterviewView["phase"];
-  readonly rounds: number;
-  readonly summary: string;
-  readonly context: string;
-  readonly deliverables: ReadonlyArray<{
-    readonly path: string;
-    readonly format: "markdown" | "json";
-    readonly text: string;
-  }>;
-  readonly unanswered: InterviewView["unanswered"];
-};
-
-/** 取结果（运营的 agent 轮询用）：phase、总结、主交付物全文、结构化交付物、客户始终没答的题。 */
-export const outcome: Effect.Effect<Outcome, never, Host | Store> = Effect.gen(function* () {
+/**
+ * 取结果：一份**尽量原始**的记录（见 shared/bundle.ts）。没结束时也能取（phase 会说明），只是还没封口。
+ * 受访者的回答、提问方和受访者给的材料、agent 读过的网页、agent 的解读，各自分开放。
+ */
+export const result: Effect.Effect<ResultBundle, never, Host | Store> = Effect.gen(function* () {
   const v = yield* view;
-  const delivered = yield* readDeliverables;
-  return {
+  const m = yield* loadMachine;
+  const spec = yield* loadSpec;
+  const ctx = yield* beforeTurnContext;
+  const rounds: BundleInput["rounds"][number][] = [];
+  for (const r of yield* roundRows) {
+    const rv = roundOf(r);
+    rounds.push({
+      seq: rv.seq,
+      kind: rv.kind,
+      intro: rv.intro,
+      delta: (yield* kvGet(`delta.${rv.id}`)) ?? null,
+      questions: rv.questions.map(questionOf),
+      answers: (yield* answerRows(rv.id)).map((a) => ({
+        qid: text(a, "qid"),
+        value: typeof a["value"] === "string" ? (JSON.parse(a["value"]) as unknown) : null,
+        skipped: a["skipped"] === 1,
+      })),
+      note: (yield* kvGet(`note:${rv.id}`)) ?? "",
+    });
+  }
+  const files = (yield* q(
+    "SELECT path, name, mime, size, qid, status, r2_key FROM files ORDER BY created_at",
+  )).map((f) => ({
+    path: text(f, "path"),
+    name: text(f, "name"),
+    mime: text(f, "mime"),
+    size: num(f, "size"),
+    qid: text(f, "qid"),
+    status: text(f, "status") === "ok" ? ("ok" as const) : ("unconverted" as const),
+    r2Key: text(f, "r2_key"),
+  }));
+  const pages = (yield* q("SELECT n, url, length(text) AS size FROM pages ORDER BY n")).map(
+    (p) => ({
+      n: num(p, "n"),
+      url: text(p, "url"),
+      size: num(p, "size"),
+    }),
+  );
+  const judged = JSON.parse((yield* kvGet("judge.last")) ?? "null") as Judged[] | null;
+  const bundle = buildBundle({
+    id: v.code,
     phase: v.phase,
-    rounds: v.history.length,
+    template: spec.template,
+    goal: ctx.goal,
+    brief: ctx.brief,
+    respondent: spec.respondent,
+    language: spec.language,
+    model: (yield* kvGet("model")) ?? "",
+    rounds,
+    findings: yield* findingsRows,
     summary: (yield* kvGet("summary")) ?? "",
-    context: delivered.context,
-    deliverables: delivered.files,
     unanswered: v.unanswered,
-  };
+    validation:
+      spec.criteria.length === 0
+        ? null
+        : {
+            criteria: judged ?? [],
+            blocked: Number((yield* kvGet("finish.blocked")) ?? "0") || 0,
+            unmet: JSON.parse((yield* kvGet("unmet")) ?? "[]") as string[],
+          },
+    files,
+    pages,
+    deferredRoundOpened: m.deferredRoundOpened,
+  });
+  return { ...bundle, digest: yield* digestOf(bundle) };
 });
 
 /** 删除前：列出这个访谈在 R2 里的所有对象（DO 的存储由 DO 自己清）。 */

@@ -17,7 +17,7 @@ export const MAX_MARKDOWN_CHARS = 400_000;
 const approxTokens = (s: string) => Math.ceil(s.length / 3);
 const clip = (s: string): string =>
   s.length > MAX_MARKDOWN_CHARS ? `${s.slice(0, MAX_MARKDOWN_CHARS)}\n\n…（太长，已截断）` : s;
-/** tryPromise 默认会把失败包成一句泛泛的话；真正的原因在 cause 里，agent 和运营要看到的是它。 */
+/** tryPromise 默认会把失败包成一句泛泛的话；真正的原因在 cause 里，agent 和提问方要看到的是它。 */
 const message = (e: unknown): string => {
   const cause =
     typeof e === "object" && e !== null && "cause" in e ? (e as { cause: unknown }).cause : e;

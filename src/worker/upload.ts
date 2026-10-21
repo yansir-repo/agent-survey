@@ -19,7 +19,7 @@ export type FileResult = {
   readonly size?: number;
 };
 
-/** 文件往哪放、收什么、收多少、多大：客户在某道题上传 vs 运营预置资料，是同一条流水线的两种目标。 */
+/** 文件往哪放、收什么、收多少、多大：受访者在某道题上传 vs 提问方预置资料，是同一条流水线的两种目标。 */
 export type Target = {
   readonly qid: string;
   readonly dir: string;
@@ -38,7 +38,7 @@ export const questionTarget = (q: Extract<Question, { kind: "image" | "file" }>)
   refuse: (name) => (acceptsKind(q.kind, name) ? null : "这道题只收图片"),
 });
 
-/** 运营预置资料：文档、文本、图片都收，数量不限，单个文件的上限是平台的天花板（见 MAX_PROVIDED_BYTES）。 */
+/** 提问方预置资料：文档、文本、图片都收，数量不限，单个文件的上限是平台的天花板（见 MAX_PROVIDED_BYTES）。 */
 export const providedTarget = (source: Source): Target => ({
   qid: providedQid(source),
   dir: providedDir(source),
@@ -100,7 +100,7 @@ export const ingest = (
         ),
       ).pipe(Effect.result);
       if (stored._tag === "Failure") {
-        // 没存成：别留下孤立的原件，也别让整次上传变成一个空的 500——告诉客户这个文件没收成，并留下原因
+        // 没存成：别留下孤立的原件，也别让整次上传变成一个空的 500——告诉受访者这个文件没收成，并留下原因
         yield* Effect.promise(() => env.FILES.delete(r2Key));
         const cause = (stored.failure as { cause?: unknown }).cause;
         out.push({

@@ -1,23 +1,23 @@
 /**
- * 客户的回答 → agent 读的文字。agent 不读 HTML、不读 JSON，只读 Markdown：每题一节，
- * 没答的明说“客户选择稍后再答”（不留空白，让 agent 无从误会成“客户没意见”）。文件题只列路径，内容 agent 自己去工作区读。
+ * 受访者的回答 → agent 读的文字。agent 不读 HTML、不读 JSON，只读 Markdown：每题一节，
+ * 没答的明说“受访者选择稍后再答”（不留空白，让 agent 无从误会成“受访者没意见”）。文件题只列路径，内容 agent 自己去工作区读。
  */
 import type { FileInfo } from "./api.ts";
 import { markdownPath } from "./files.ts";
 import { isOther, otherText, type Question, type Value } from "./questions.ts";
 import { richToMarkdown } from "./rich.ts";
 
-/** 客户自己写的选项（“其他：xxx”）要让 agent 看得出这不是你给的选项。 */
+/** 受访者自己写的选项（“其他：xxx”）要让 agent 看得出这不是你给的选项。 */
 const plainOption = (v: string): string =>
-  isOther(v) ? `其他（客户自己写的）：${otherText(v)}` : v;
+  isOther(v) ? `其他（受访者自己写的）：${otherText(v)}` : v;
 
 /** 一个答案的 Markdown 正文（不含标题）。 */
 export const valueMarkdown = (q: Question, v: Value, files: ReadonlyArray<FileInfo>): string => {
   switch (q.kind) {
     case "single":
-      // 检查点里“其他”那个选项是客户的纠正（otherLabel 只有检查点用）
+      // 检查点里“其他”那个选项是受访者的纠正（otherLabel 只有检查点用）
       return q.otherLabel !== undefined && isOther(String(v))
-        ? `客户纠正（他写的）：${otherText(String(v))}`
+        ? `受访者纠正（他写的）：${otherText(String(v))}`
         : plainOption(String(v));
     case "text":
     case "long":
@@ -44,14 +44,14 @@ export const valueMarkdown = (q: Question, v: Value, files: ReadonlyArray<FileIn
   }
 };
 
-/** value 为 null：客户选了稍后再答；blank：选填题客户没写（空着就是空着，不会补问）。 */
+/** value 为 null：受访者选了稍后再答；blank：选填题受访者没写（空着就是空着，不会补问）。 */
 export type Answered = {
   readonly question: Question;
   readonly value: Value | null;
   readonly blank?: boolean;
 };
 
-/** 一轮的回答。value 为 null = 客户选了稍后再答。 */
+/** 一轮的回答。value 为 null = 受访者选了稍后再答。 */
 export const answersMarkdown = (
   items: ReadonlyArray<Answered>,
   files: ReadonlyArray<FileInfo>,
@@ -63,14 +63,14 @@ export const answersMarkdown = (
         `### ${question.title}`,
         `（题目 id：${question.id}，方式：${question.kind}）`,
         blank
-          ? "客户没有填写（这是选填题，空着就是空着，不用再问）。"
+          ? "受访者没有填写（这是选填题，空着就是空着，不用再问）。"
           : value === null
-            ? "客户选择稍后再答（系统会在最后补问，你不用重复问）。"
+            ? "受访者选择稍后再答（系统会在最后补问，你不用重复问）。"
             : valueMarkdown(question, value, files),
       ].join("\n"),
     )
     .join("\n\n");
   return note.trim() === ""
     ? body
-    : `${body}\n\n### 客户在这一轮底部额外补充的话（自由输入，不是你问的）\n${note.trim()}`;
+    : `${body}\n\n### 受访者在这一轮底部额外补充的话（自由输入，不是你问的）\n${note.trim()}`;
 };

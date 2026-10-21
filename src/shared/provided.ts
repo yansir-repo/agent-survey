@@ -1,28 +1,32 @@
 /**
- * 预置资料：访谈开始之前，运营侧放进访谈者工作区的资料，分两种出处——
- *   client  客户提供的（画册、报价单、他给的网址）。里面的话算“客户说过的话”，可以作为 confirm 选项的依据（basis）。
- *   ours    我们做的调研（行业、竞品）。是我们的判断，不是客户说的：只能当线索（猜选项），不能当依据。
- * 客户在页面上看得到全部（出处标明）。出处由存放的目录决定，是唯一的事实：provided/client/、provided/ours/。
+ * 预置资料（已知信息）：访谈开始之前，提问方放进访谈者工作区的资料，分两种出处——
+ *   respondent  受访者提供的（画册、报价单、他给的网址，或他此前的回答）。里面的话算“受访者说过的话”，可以作为 confirm 选项的依据（basis）。
+ *   inquirer    提问方做的调研（行业、竞品、背景整理）。是提问方的判断，不是受访者说的：只能当线索（猜选项），不能当依据。
+ * 受访者在页面上看得到全部（出处标明）。出处由存放的目录决定，是唯一的事实：provided/respondent/、provided/inquirer/。
  */
 import type { FileInfo } from "./api.ts";
 
-export type Source = "client" | "ours";
-export const SOURCES: ReadonlyArray<Source> = ["client", "ours"];
+export type Source = "respondent" | "inquirer";
+export const SOURCES: ReadonlyArray<Source> = ["respondent", "inquirer"];
 
 export const SOURCE_LABEL: Readonly<Record<Source, string>> = {
-  client: "客户提供的",
-  ours: "我们做的调研",
+  respondent: "受访者提供的",
+  inquirer: "提问方做的调研",
 };
 
 export const providedQid = (s: Source): string => `provided-${s}`;
 export const providedDir = (s: Source): string => `provided/${s}/`;
 export const sourceOfQid = (qid: string): Source | null =>
-  qid === providedQid("client") ? "client" : qid === providedQid("ours") ? "ours" : null;
-export const isSource = (v: unknown): v is Source => v === "client" || v === "ours";
+  qid === providedQid("respondent")
+    ? "respondent"
+    : qid === providedQid("inquirer")
+      ? "inquirer"
+      : null;
+export const isSource = (v: unknown): v is Source => v === "respondent" || v === "inquirer";
 
 /**
  * 预置资料单个文件的上限：不是业务规则，是平台的天花板（Worker 请求体 100MB、内存 128MB，一个文件要在内存里转两次）。
- * 比客户上传的 20MB 宽得多；更大的以后走直传 R2，到那时再改。
+ * 比受访者上传的 20MB 宽得多；更大的以后走直传 R2，到那时再改。
  */
 export const MAX_PROVIDED_BYTES = 50 * 1024 * 1024;
 
@@ -46,26 +50,26 @@ export const providedListing = (
       ...us.map((u) => `- 网址 ${u.url}（用 fetch_page 读）`),
     ];
   };
-  const client = part("client");
-  const ours = part("ours");
-  if (client.length === 0 && ours.length === 0) return "";
+  const given = part("respondent");
+  const research = part("inquirer");
+  if (given.length === 0 && research.length === 0) return "";
   return [
-    "运营在访谈开始前放进来的资料（客户在页面上也看得到它们）：",
-    ...(client.length
+    "提问方在访谈开始前放进来的资料（受访者在页面上也看得到它们）：",
+    ...(given.length
       ? [
           "",
-          "【客户提供的】——里面的话算客户说过的话，可以作为 confirm 选项的依据（basis 要逐字引用）：",
-          ...client,
+          "【受访者提供的】——里面的话算受访者说过的话，可以作为 confirm 选项的依据（basis 要逐字引用）：",
+          ...given,
         ]
       : []),
-    ...(ours.length
+    ...(research.length
       ? [
           "",
-          "【我们做的调研】——这是我们自己的判断，不是客户说的：只能当线索（帮你猜选项），不能当依据，也不要写成“客户说”：",
-          ...ours,
+          "【提问方做的调研】——这是提问方自己的判断，不是受访者说的：只能当线索（帮你猜选项），不能当依据，也不要写成“受访者说”：",
+          ...research,
         ]
       : []),
     "",
-    "先读（读多少、读哪些由你判断），资料已经回答了的事不要再问客户；资料说得含糊或互相矛盾的地方才问。",
+    "先读（读多少、读哪些由你判断），资料已经回答了的事不要再问受访者；资料说得含糊或互相矛盾的地方才问。",
   ].join("\n");
 };

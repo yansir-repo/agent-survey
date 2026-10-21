@@ -4,7 +4,7 @@ declare namespace Cloudflare {
     Interviewer: DurableObjectNamespace<import("./interviewer.ts").Interviewer>;
     /** 访谈登记（migrations/）。 */
     DB: D1Database;
-    /** 客户上传的原件。 */
+    /** 受访者上传的原件。 */
     FILES: R2Bucket;
     /** The SPA shell, served after an interview's key checks out. */
     ASSETS: Fetcher;

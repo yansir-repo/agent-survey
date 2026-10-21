@@ -8,7 +8,7 @@
  *   POST   /i/<code>.<key>/api/files?qid=       upload (multipart, several files, drag & drop)
  *   DELETE /i/<code>.<key>/api/files?path=
  *   POST   /i/<code>.<key>/api/resume           the agent's turn broke: try again
- *   /admin/*  the operator's side (Bearer ADMIN_TOKEN) — create / list / result / rotate / delete; the endpoint list lives in
+ *   /admin/*  the inquirer's side (Bearer ADMIN_TOKEN) — create / list / result / rotate / delete; the endpoint list lives in
  *             src/shared/guide.ts (served as GET /admin/guide and the public /llms.txt), not here.
  */
 import { env } from "cloudflare:workers";
@@ -21,8 +21,10 @@ import { markdownPath } from "../shared/files.ts";
 import { guideText } from "../shared/guide.ts";
 import { isSource, sourceOfQid } from "../shared/provided.ts";
 import { parseProvidedUrls } from "../shared/provided-urls.ts";
-import { CONTEXT_PATH } from "../shared/prompt.ts";
-import { DEFAULT_PROFILE, PROFILES, resolveMission } from "../shared/profiles.ts";
+import { NOTES_PATH } from "../shared/prompt.ts";
+import { DEFAULT_TEMPLATE, TEMPLATES, resolveTemplate } from "../shared/templates.ts";
+import { bundleMarkdown } from "../shared/bundle.ts";
+import type { ResultBundle } from "./interview.ts";
 import { ingest, providedTarget, questionTarget } from "./upload.ts";
 import {
   InterviewExists,
@@ -113,7 +115,7 @@ const clientRoute = (db: D1Like) =>
         const r = yield* rpc(() => stub.submit(submit[1]!));
         return json(r, r.ok ? 200 : 422);
       }
-      // 客户看得到运营预置的资料（转成文字的那份）：只限 provided/ 下的文件
+      // 受访者看得到提问方预置的资料（转成文字的那份）：只限 provided/ 下的文件
       if (rest === "/api/provided/file" && method === "GET") {
         const path = url.searchParams.get("path") ?? "";
         const view = yield* rpc(() => stub.view());
@@ -130,13 +132,13 @@ const clientRoute = (db: D1Like) =>
           status: f.status,
         });
       }
-      // 客户看得到 agent 写的 CONTEXT.md（它眼里的“我对你的理解”），也可以下载
-      if (rest === "/api/context" && method === "GET") {
-        const text = (yield* rpc(() => stub.readWorkspace(CONTEXT_PATH))) ?? "";
+      // 受访者看得到 agent 的工作笔记（它眼里的“我对你的理解”），也可以下载
+      if (rest === "/api/notes" && method === "GET") {
+        const text = (yield* rpc(() => stub.readWorkspace(NOTES_PATH))) ?? "";
         return url.searchParams.has("download")
           ? HttpServerResponse.text(text, {
               contentType: "text/markdown; charset=utf-8",
-              headers: { "content-disposition": `attachment; filename="CONTEXT-${parts.code}.md"` },
+              headers: { "content-disposition": `attachment; filename="NOTES-${parts.code}.md"` },
             })
           : json({ ok: true, text });
       }
@@ -185,7 +187,7 @@ const adminRoute = (db: D1Like) =>
     "/admin/*",
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
-      if (!adminAllowed(request)) return HttpServerResponse.text("需要运营凭证", { status: 401 });
+      if (!adminAllowed(request)) return HttpServerResponse.text("需要提问方凭证", { status: 401 });
       const url = new URL(request.url, "http://x");
       const path = url.pathname.replace(/\/$/, "");
       const method = request.method;
@@ -193,20 +195,17 @@ const adminRoute = (db: D1Like) =>
 
       if (path === "/admin/interviews" && method === "POST") {
         const body = asRecord(yield* readJson(request));
-        // 任务层：选一个预设（默认 DEFAULT_PROFILE）、整段覆盖（mission）、或在预设后追加（append）；解析后的文本存进访谈（快照）
-        const resolved = resolveMission({
-          profile: str(body["profile"]),
-          mission: str(body["mission"]),
-          append: str(body["append"]),
-        });
+        // 选一个模板（默认 DEFAULT_TEMPLATE）、整段覆盖目标（goal）、在模板后追加（append），以及覆盖它的验收条款、节奏、能力……
+        // 解析后的目标文本和快照一起存进访谈：之后改模板不影响进行中的访谈。
+        const resolved = resolveTemplate(body);
         if (!resolved.ok) return json({ ok: false, error: resolved.error }, 422);
         const model = resolveModel(str(body["model"]));
         if (!model.ok) return json({ ok: false, error: model.error }, 422);
         const made = yield* create(
           str(body["code"]),
           str(body["brief"]),
-          resolved.profile,
-          resolved.mission,
+          resolved.label,
+          resolved.goal,
           model.name,
         ).pipe(provide, Effect.result);
         if (made._tag === "Failure") {
@@ -243,22 +242,17 @@ const adminRoute = (db: D1Like) =>
         if (!pre.ok) return json({ ok: false, error: pre.error }, 422);
         if (pre.urls.length > 0) yield* rpc(() => stubOf(i.code).addUrls(pre.urls));
         // start: false = 先建好，等 materials 放完再 POST …/start（命令行的 --material 就是这么走的）
-        // 交付物契约也一起快照进 DO：之后改预设不影响进行中的访谈。
-        const spec = JSON.stringify({
-          stage: resolved.stage,
-          deliverables: resolved.deliverables,
-          judge: resolved.judge,
-        });
+        // 模板快照（验收条款、节奏、能力、语言、回调……）也一起存进 DO。
+        const spec = JSON.stringify(resolved.spec);
         yield* rpc(() =>
-          stubOf(i.code).begin(i.brief, i.mission, i.model, body["start"] !== false, spec),
+          stubOf(i.code).begin(i.brief, i.goal, i.model, body["start"] !== false, spec),
         );
         return json(
           {
             ok: true,
             code: i.code,
-            profile: i.profile,
-            stage: resolved.stage,
-            deliverables: resolved.deliverables,
+            template: i.template,
+            spec: resolved.spec,
             model: i.model,
             url: `${origin()}${interviewPath(i.code, i.key)}`,
           },
@@ -281,16 +275,16 @@ const adminRoute = (db: D1Like) =>
                 : env.AIHUBMIX_API_KEY !== "none",
           })),
         });
-      if (path === "/admin/profiles" && method === "GET")
+      if (path === "/admin/templates" && method === "GET")
         return json({
-          default: DEFAULT_PROFILE,
-          profiles: Object.entries(PROFILES).map(([name, p]) => ({
+          default: DEFAULT_TEMPLATE,
+          templates: Object.entries(TEMPLATES).map(([name, t]) => ({
             name,
-            title: p.title,
-            stage: p.stage,
-            judge: p.judge,
-            deliverables: p.deliverables,
-            chars: p.mission.length,
+            title: t.title,
+            version: t.version,
+            criteria: t.criteria,
+            respondent: t.respondent ?? "",
+            chars: t.goal.length,
           })),
         });
       if (path === "/admin/interviews" && method === "GET") {
@@ -310,7 +304,7 @@ const adminRoute = (db: D1Like) =>
         return json({ interviews: rows });
       }
       const one =
-        /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result|\/record|\/materials|\/start)?$/.exec(
+        /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result|\/materials|\/start)?$/.exec(
           path,
         );
       if (one) {
@@ -344,7 +338,7 @@ const adminRoute = (db: D1Like) =>
             const body = asRecord(yield* readJson(request));
             const src = str(body["source"]);
             if (!isSource(src))
-              return json({ ok: false, error: "source 要写 client 或 ours" }, 422);
+              return json({ ok: false, error: "source 要写 respondent 或 inquirer" }, 422);
             const parsed = parseProvidedUrls(
               (Array.isArray(body["urls"]) ? body["urls"] : []).map((u) => ({
                 url: u,
@@ -361,18 +355,22 @@ const adminRoute = (db: D1Like) =>
           );
           if (form === null) return json({ ok: false, error: "上传的内容读不出来" }, 400);
           const src = form.get("source");
-          if (!isSource(src)) return json({ ok: false, error: "source 要写 client 或 ours" }, 422);
+          if (!isSource(src))
+            return json({ ok: false, error: "source 要写 respondent 或 inquirer" }, 422);
           const files = form.getAll("file").filter((f): f is File => typeof f !== "string");
           if (files.length === 0) return json({ ok: false, error: "没有收到文件" }, 400);
           const results = yield* ingest(env, stubOf(code), code, providedTarget(src), files);
           return json({ ok: results.some((r) => r.ok), results });
         }
         if (one[2] === "/result" && method === "GET") {
-          const out = yield* rpc(() => stubOf(code).outcome());
-          return json({ ok: true, code, ...out });
+          const out = JSON.parse(yield* rpc(() => stubOf(code).result())) as ResultBundle;
+          // ?format=md：同一份记录的人读版，由记录机械渲染
+          return url.searchParams.get("format") === "md"
+            ? HttpServerResponse.text(bundleMarkdown(out), {
+                contentType: "text/markdown; charset=utf-8",
+              })
+            : json({ ok: true, ...out });
         }
-        if (one[2] === "/record" && method === "GET")
-          return json({ ok: true, code, text: yield* rpc(() => stubOf(code).record()) });
         if (one[2] === "/file" && method === "GET") {
           const text = yield* rpc(() =>
             stubOf(code).readWorkspace(url.searchParams.get("path") ?? ""),
@@ -419,7 +417,7 @@ const buildHandler = (db: D1Like) =>
     middleware: (app) =>
       app.pipe(
         Effect.catchCause((cause) =>
-          // 留一条日志（`node scripts/logs.ts`），客户那边只给一句话——细节不该给客户，但也不该丢
+          // 留一条日志（`node scripts/logs.ts`），受访者那边只给一句话——细节不该给受访者，但也不该丢
           Effect.sync(() =>
             console.error("route defect:", Cause.pretty(cause).slice(0, 1500)),
           ).pipe(Effect.as(json({ ok: false, error: "服务出了点问题，请稍后重试" }, 500))),
@@ -430,12 +428,12 @@ const buildHandler = (db: D1Like) =>
 const guide = (origin: string): string =>
   guideText({
     origin,
-    profiles: Object.entries(PROFILES).map(([name, p]) => ({
+    templates: Object.entries(TEMPLATES).map(([name, t]) => ({
       name,
-      title: p.title,
-      stage: p.stage,
+      title: t.title,
+      version: t.version,
     })),
-    defaultProfile: DEFAULT_PROFILE,
+    defaultTemplate: DEFAULT_TEMPLATE,
     models: Object.entries(MODELS).map(([name, m]) => ({
       name,
       title: m.title,
@@ -447,7 +445,7 @@ const guide = (origin: string): string =>
     defaultModel: DEFAULT_MODEL,
   });
 
-/** 首页：没有入口、不列任何访谈——访谈只能从运营发的专属链接进。 */
+/** 首页：没有入口、不列任何访谈——访谈只能从提问方发的专属链接进。 */
 const HOME = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>需求访谈</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f4ef;color:#23201b;font:16px/1.7 -apple-system,"PingFang SC",sans-serif;text-align:center;padding:24px}h1{font-size:24px;margin:0 0 8px}p{color:#7a7468;margin:0}</style></head>
 <body><main><h1>需求访谈</h1><p>请从我们发给你的专属链接进入。<br>没有收到链接？联系你的对接人。</p></main></body></html>`;
@@ -461,7 +459,7 @@ export default {
           headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex" },
         }),
       );
-    // 给 agent 的说明书：不含任何凭证或客户信息，所以公开
+    // 给 agent 的说明书：不含任何凭证或受访者信息，所以公开
     if (pathname === "/llms.txt" && request.method === "GET")
       return Promise.resolve(
         new Response(guide(new URL(request.url).origin), {

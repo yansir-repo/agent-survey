@@ -5,9 +5,9 @@
  * the gate: it spends model tokens on both sides.
  *
  *   node scripts/dogfood.mjs --base https://… --token <ADMIN_TOKEN> --code cmp-new --persona scripts/personas/steel-cup.md \
- *        [--profile cross-border-website | --mission-file old.md] [--append "…"] [--max-rounds 40] --out /tmp/dogfood/new.json
+ *        [--template cross-border-website | --goal-file g.md] [--append "…"] [--max-rounds 40] --out /tmp/dogfood/new.json
  *
- * Output: one JSON file with every round (questions, answers, timing), the checkpoints, and the final CONTEXT.md.
+ * Output: one JSON file with every round (questions, answers, timing), the checkpoints, and the result.
  * Only agent rounds count toward --max-rounds (checkpoints and the catch-up round do not).
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -37,9 +37,9 @@ const body = {
   code,
   brief,
   ...(arg("model") ? { model: arg("model") } : {}),
-  ...(arg("profile") ? { profile: arg("profile") } : {}),
+  ...(arg("template") ? { template: arg("template") } : {}),
   ...(arg("append") ? { append: arg("append") } : {}),
-  ...(arg("mission-file") ? { mission: readFileSync(arg("mission-file"), "utf8") } : {}),
+  ...(arg("goal-file") ? { goal: readFileSync(arg("goal-file"), "utf8") } : {}),
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -53,7 +53,7 @@ const resume = process.argv.includes("--resume");
 const created = resume
   ? {
       ok: true,
-      profile: "(resumed)",
+      template: "(resumed)",
       ...(await (await admin("GET", `/admin/interviews/${code}`)).json()),
     }
   : await (await admin("POST", "/admin/interviews", body)).json();
@@ -62,7 +62,7 @@ if (!created.ok) {
   process.exit(1);
 }
 const url = created.url.replace(/^https?:\/\/[^/]+/, base);
-console.log(`[${code}] ${created.profile} → ${url}`);
+console.log(`[${code}] ${created.template} → ${url}`);
 const api = async (m, p, b) => {
   const res = await fetch(`${url}/api${p}`, {
     method: m,
@@ -113,7 +113,7 @@ const log = resume
   ? JSON.parse(readFileSync(out, "utf8"))
   : {
       code,
-      profile: created.profile,
+      profile: created.template,
       base: url.replace(/\/i\/.*/, ""),
       startedAt: new Date().toISOString(),
       rounds: [],
@@ -214,12 +214,7 @@ for (;;) {
   );
   save();
 }
-const snap = await (await admin("GET", `/admin/interviews/${code}`)).json();
-log.context = snap.context ?? "";
-log.summary = snap.summary ?? "";
-log.model = snap.model ?? "";
-log.stats = snap.stats ?? {};
-log.stored = snap.rounds ?? [];
+log.result = await (await admin("GET", `/admin/interviews/${code}/result`)).json();
 log.refusals = snap.refusals ?? [];
 log.finishedAt = new Date().toISOString();
 save();

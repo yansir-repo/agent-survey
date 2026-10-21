@@ -22,7 +22,7 @@ export const MAX_SEARCH_CHARS = 5000;
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 export const formatSearch = (query: string, out: typeof SearchOut.Type): string => {
-  if (out.results.length === 0) return `没有搜到“${query}”的结果。换个说法再试，或者直接问客户。`;
+  if (out.results.length === 0) return `没有搜到“${query}”的结果。换个说法再试，或者直接问受访者。`;
   const lines = out.results.slice(0, MAX_SEARCH_RESULTS).map((r, i) => {
     const meta = [r.site_name, r.date?.slice(0, 10)].filter((x): x is string => !!x).join(" · ");
     return `${i + 1}. ${r.title}${meta ? `（${meta}）` : ""}\n   ${r.url}\n   ${clip((r.summary ?? r.snippet ?? "").replace(/\s+/g, " "), 450)}`;

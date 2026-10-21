@@ -2,7 +2,7 @@
  * 上传文件的规则：能收什么、多大、存在哪个路径。纯函数，客户端（拖进来时先挡）和服务端（落库前再挡）共用。
  *
  * 能收的格式 = Workers AI 的 toMarkdown 能转的（官方清单，`/admin/formats` 会对照线上 `supported()` 报告漂移）+ 纯文本。
- * 不收：压缩包（MVP 不解压）、视频，以及 toMarkdown 不认的旧版 .doc / .ppt / .rtf（请客户另存为 docx / pptx / PDF）。
+ * 不收：压缩包（MVP 不解压）、视频，以及 toMarkdown 不认的旧版 .doc / .ppt / .rtf（请受访者另存为 docx / pptx / PDF）。
  */
 
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -49,7 +49,7 @@ export const classify = (name: string): FileClass | null => {
   return null;
 };
 
-/** 给客户看的“收不了”的原因（agent 也读得到）。 */
+/** 给受访者看的“收不了”的原因（agent 也读得到）。 */
 export const rejectReason = (
   name: string,
   bytes: number,
@@ -71,7 +71,7 @@ export const rejectReason = (
 export const acceptFor = (kind: "image" | "file"): string =>
   (kind === "image" ? IMAGE_EXT : [...DOC_EXT, ...TEXT_EXT]).map((e) => `.${e}`).join(",");
 
-/** 上传框里给客户看的格式说明（来自同一份清单，agent 不另写）。 */
+/** 上传框里给受访者看的格式说明（来自同一份清单，agent 不另写）。 */
 export const formatsText = (kind: "image" | "file"): string =>
   kind === "image"
     ? `支持 JPG、PNG、WebP、SVG、GIF、BMP；单个不超过 ${MAX_FILE_BYTES / 1024 / 1024}MB；可以一次选多张`

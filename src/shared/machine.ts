@@ -4,10 +4,10 @@
  *   thinking ─agentAsked→ asking ─submitted→ thinking ─…→ done
  *                                     └─ 每满 STAGE_ROUNDS 轮 → 检查点（agent 必须 checkpoint，不能 ask_round）
  *
- * 不变量一：**客户没答的题一个都不会丢**。客户选“稍后再答”的题进 `deferred`；agent 说完（finish）时，
+ * 不变量一：**受访者没答的题一个都不会丢**。受访者选“稍后再答”的题进 `deferred`；agent 说完（finish）时，
  * 只要还有，就由系统（不是 agent）开一轮“回头补答”；那一轮之后还没答的就是“待确认”，访谈结束。
  * 不变量二：**阶段节奏由系统数，不由 agent 猜**。一个阶段问满 STAGE_ROUNDS 个 agent 轮之后，系统开始**催**检查点
- * （agent 重写 CONTEXT.md，客户逐条确认或纠正）——时机由 agent 选：把手头这一块问完、到一个自然的停顿点再做，
+ * （agent 重写 NOTES.md，受访者逐条确认或纠正）——时机由 agent 选：把手头这一块问完、到一个自然的停顿点再做，
  * 而不是机械地卡在第 10、20 轮（那样最后一个阶段可能只剩一两题就被迫小结）。拖到 STAGE_FORCE 轮系统才强制。
  */
 
@@ -22,9 +22,9 @@ export type Machine = {
   readonly phase: Phase;
   /** 已经开过几轮（agent 的、检查点的和回头补答的都算）。 */
   readonly rounds: number;
-  /** 眼下等客户回答的那一轮。 */
+  /** 眼下等受访者回答的那一轮。 */
   readonly open: string | null;
-  /** 客户选了“稍后再答”、还没答的题。 */
+  /** 受访者选了“稍后再答”、还没答的题。 */
   readonly deferred: ReadonlyArray<string>;
   /** 回头补答那一轮开过没有（只开一次）。 */
   readonly deferredRoundOpened: boolean;
@@ -56,7 +56,7 @@ export const initial: Machine = {
 
 export type Event =
   | { readonly t: "agentAsked"; readonly roundId: string }
-  /** agent 做了检查点：开了一轮“请客户确认我听到的”。 */
+  /** agent 做了检查点：开了一轮“请受访者确认我听到的”。 */
   | { readonly t: "agentCheckpointed"; readonly roundId: string }
   | { readonly t: "agentFinished" }
   /** agent 这一回合结束了，但没有调用 ask_round / checkpoint / finish_interview。 */

@@ -15,10 +15,10 @@ describe("what the agent reads", () => {
 
   it("an answer the customer wrote himself is marked as such, so the agent does not mistake it for one of its own options", () => {
     expect(valueMarkdown(q("single", { options: [] }), "其他：做代工", [])).toBe(
-      "其他（客户自己写的）：做代工",
+      "其他（受访者自己写的）：做代工",
     );
     expect(valueMarkdown(q("multi", { options: [] }), ["A", "其他：C"], [])).toBe(
-      "- A\n- 其他（客户自己写的）：C",
+      "- A\n- 其他（受访者自己写的）：C",
     );
   });
 
@@ -44,7 +44,7 @@ describe("what the agent reads", () => {
   it("in a checkpoint, a written answer is the customer's correction (so the agent knows to override its own claim)", () => {
     const cp = q("single", { options: [], otherLabel: "不对，应该是…" });
     expect(valueMarkdown(cp, "其他：其实主要是中东", [])).toBe(
-      "客户纠正（他写的）：其实主要是中东",
+      "受访者纠正（他写的）：其实主要是中东",
     );
     expect(valueMarkdown(cp, "对", [])).toBe("对");
   });

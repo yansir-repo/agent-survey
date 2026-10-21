@@ -1,6 +1,6 @@
 /**
  * 访谈登记，一个事实一处：D1 的 `interviews`（code → key、背景）。访谈自己的内容在它的 Durable Object 里。
- * 客户的地址是 `/i/<code>.<key>`：key 就是门；对错一律同一种 404，不泄露哪个 code 存在。
+ * 受访者的地址是 `/i/<code>.<key>`：key 就是门；对错一律同一种 404，不泄露哪个 code 存在。
  */
 import { Data, Effect } from "effect";
 import { nowSeconds } from "./clock.ts";
@@ -51,8 +51,8 @@ export type Interview = {
   readonly code: string;
   readonly key: string;
   readonly brief: string;
-  readonly profile: string;
-  readonly mission: string;
+  readonly template: string;
+  readonly goal: string;
   readonly model: string;
   readonly createdAt: number;
 };
@@ -60,8 +60,8 @@ const rowOf = (r: Readonly<Record<string, unknown>>): Interview => ({
   code: str(r, "code"),
   key: str(r, "key"),
   brief: str(r, "brief"),
-  profile: str(r, "profile"),
-  mission: str(r, "mission"),
+  template: str(r, "template"),
+  goal: str(r, "goal"),
   model: str(r, "model"),
   createdAt: num(r, "created_at"),
 });
@@ -69,8 +69,8 @@ const rowOf = (r: Readonly<Record<string, unknown>>): Interview => ({
 export const create = (
   rawCode: string,
   brief: string,
-  profile: string,
-  mission: string,
+  template: string,
+  goal: string,
   model: string,
 ) =>
   Effect.gen(function* () {
@@ -91,15 +91,15 @@ export const create = (
       return yield* new InterviewRetired({ code });
     const key = yield* randomKey;
     yield* db.run(
-      "INSERT INTO interviews (code, key, brief, profile, mission, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [code, key, brief, profile, mission, model, yield* nowSeconds],
+      "INSERT INTO interviews (code, key, brief, template, goal, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [code, key, brief, template, goal, model, yield* nowSeconds],
     );
     return {
       code,
       key,
       brief,
-      profile,
-      mission,
+      template,
+      goal,
       model,
       createdAt: yield* nowSeconds,
     } satisfies Interview;
@@ -112,7 +112,7 @@ export const find = (code: string) =>
     return row ? rowOf(row) : null;
   });
 
-/** 客户这一侧的门：code + key 都对才算。 */
+/** 受访者这一侧的门：code + key 都对才算。 */
 export const open = (code: string, key: string) =>
   Effect.map(find(code), (i) => (i !== null && sameSecret(i.key, key) ? i : null));
 

@@ -3,7 +3,7 @@
  * 同一份 Schema 同时是：TS 类型、agent 的工具入参（JSON Schema）、客户端渲染的依据。
  *
  *   Question = id × title × why × 方式（single | multi | number | text | long | rich | link | image | file）
- *   Answer   = 与方式对应的值；客户可以不答（稍后再答），所以“没有答案”是一等状态，不是错误。
+ *   Answer   = 与方式对应的值；受访者可以不答（稍后再答），所以“没有答案”是一等状态，不是错误。
  *
  * 没有 archive / video：MVP 不支持（见 AGENTS.md）。要加一种方式，就在这里加一项、在 validateAnswer 里加一条规则。
  */
@@ -18,22 +18,22 @@ const Options = Schema.Array(Option).check(Schema.isMinLength(2), Schema.isMaxLe
 
 const base = {
   id: Id,
-  /** 问题本身，客户读到的那句话。 */
+  /** 问题本身，受访者读到的那句话。 */
   title: Short(300),
-  /** 为什么问：一句话说明这题的用途（客户愿意回答的前提）。 */
+  /** 为什么问：一句话说明这题的用途（受访者愿意回答的前提）。 */
   why: Short(300),
   /**
-   * 选填：客户可以不写，也不用“稍后再答”——空着就是空着，不会被补问。要写“可留空”就用这个，别写进题目里。
-   * （“稍后再答”是另一回事：那是客户想答但现在答不了，系统会补问。）
+   * 选填：受访者可以不写，也不用“稍后再答”——空着就是空着，不会被补问。要写“可留空”就用这个，别写进题目里。
+   * （“稍后再答”是另一回事：那是受访者想答但现在答不了，系统会补问。）
    */
   optional: Schema.optionalKey(Schema.Boolean),
   /**
    * 出题者的自检（agent 发起的题必填，系统自己生成的检查点题没有）：
    *   resolves 这题消除的是哪一处“不问我就得编”的地方；
-   *   mode     explore = 开放题，听客户自己说；
-   *            guess   = 选项是我猜的（没有依据也行）：猜得越像越好，都不符合时客户会自己写；
-   *            confirm = 选项来自客户说过的话，在验证一个假设；
-   *   basis    confirm 必填：客户（或邀请说明里）的原话，逐字——系统会在他说过的话里找它。
+   *   mode     explore = 开放题，听受访者自己说；
+   *            guess   = 选项是我猜的（没有依据也行）：猜得越像越好，都不符合时受访者会自己写；
+   *            confirm = 选项来自受访者说过的话，在验证一个假设；
+   *   basis    confirm 必填：受访者（或邀请说明里）的原话，逐字——系统会在他说过的话里找它。
    */
   resolves: Schema.optionalKey(Short(200)),
   mode: Schema.optionalKey(Schema.Literals(["explore", "guess", "confirm"])),
@@ -106,14 +106,14 @@ export const QUESTION_KINDS = [
 ] as const satisfies ReadonlyArray<QuestionKind>;
 
 export const MAX_QUESTIONS_PER_ROUND = 8;
-/** 一轮最多几道“小作文”题（long / rich）：客户的力气是有限的，选择题可以多，作文题不能多。 */
+/** 一轮最多几道“小作文”题（long / rich）：受访者的力气是有限的，选择题可以多，作文题不能多。 */
 export const MAX_ESSAYS_PER_ROUND = 1;
 /** 每一轮底部的自由补充（系统自带，不是 agent 的题）。 */
 export const MAX_NOTE = 2000;
 
-/** agent 一轮问什么：1–8 题（其中最多 1 道作文题），加一句开场白，以及“我现在的理解”（让客户纠错，不是进度）。 */
+/** agent 一轮问什么：1–8 题（其中最多 1 道作文题），加一句开场白，以及“我现在的理解”（让受访者纠错，不是进度）。 */
 export const AskRound = Schema.Struct({
-  /** 上一轮回答让 CONTEXT.md 变了什么、推翻了我哪个假设（第一轮写“第一轮，尚无回答”）。 */
+  /** 上一轮回答让 NOTES.md 变了什么、推翻了我哪个假设（第一轮写“第一轮，尚无回答”）。 */
   delta: Short(400),
   intro: Short(400),
   understanding: Schema.optionalKey(
@@ -173,14 +173,14 @@ export const shapeProblems = (questions: ReadonlyArray<Question>): string[] => {
   return essays.length > MAX_ESSAYS_PER_ROUND
     ? [
         ...compound,
-        `这一轮有 ${essays.length} 道作文题（${essays.map((q) => q.id).join("、")}），最多 ${MAX_ESSAYS_PER_ROUND} 道：其余改成选择题（猜几个可能的选项，客户都不符合时会自己写），或留到下一轮`,
+        `这一轮有 ${essays.length} 道作文题（${essays.map((q) => q.id).join("、")}），最多 ${MAX_ESSAYS_PER_ROUND} 道：其余改成选择题（猜几个可能的选项，受访者都不符合时会自己写），或留到下一轮`,
       ]
     : compound;
 };
 
 /**
- * 选项题要声明依据：每题必须有 resolves 和 mode；单选/多选必须是 guess（选项是你猜的）或 confirm（来自客户的话）；
- * confirm 的 basis 要逐字出现在客户说过的话里（corpus = 邀请说明 + 他所有的回答和补充）。explore 是开放题，不带选项。
+ * 选项题要声明依据：每题必须有 resolves 和 mode；单选/多选必须是 guess（选项是你猜的）或 confirm（来自受访者的话）；
+ * confirm 的 basis 要逐字出现在受访者说过的话里（corpus = 邀请说明 + 他所有的回答和补充）。explore 是开放题，不带选项。
  */
 export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: string): string[] => {
   const hay = normalizeText(corpus);
@@ -192,7 +192,7 @@ export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: st
     const choice = q.kind === "single" || q.kind === "multi";
     if (choice && q.mode === "explore")
       return [
-        `题 ${q.id}：explore 是开放题，不能带选项——要给选项就用 guess（你猜的）或 confirm（来自客户的话）`,
+        `题 ${q.id}：explore 是开放题，不能带选项——要给选项就用 guess（你猜的）或 confirm（来自受访者的话）`,
       ];
     if (q.mode === "confirm") {
       // 一条 basis 可以引用几处原话（用 …、/、；、| 或换行隔开）：每一段都要在他的话里找到，且至少有一段不短于 4 个字
@@ -201,11 +201,11 @@ export const groundingProblems = (questions: ReadonlyArray<Question>, corpus: st
         .map(normalizeText)
         .filter((x) => x.length >= 2);
       if (!parts.some((x) => x.length >= 4))
-        return [`题 ${q.id}：confirm 必须在 basis 里引用客户的原话（至少 4 个字）`];
+        return [`题 ${q.id}：confirm 必须在 basis 里引用受访者的原话（至少 4 个字）`];
       const missing = parts.find((x) => !hay.includes(x));
       if (missing !== undefined)
         return [
-          `题 ${q.id}：basis 里的「${missing}」没有在客户说过的话里找到——逐字抄他的原话（不要改写、概括；可以用 … 隔开几处原话）`,
+          `题 ${q.id}：basis 里的「${missing}」没有在受访者说过的话里找到——逐字抄他的原话（不要改写、概括；可以用 … 隔开几处原话）`,
         ];
     }
     return [];
@@ -225,7 +225,7 @@ export const parseAskRound = (
         .replace(/^SchemaError\(/, "")
         .slice(0, 900),
     };
-  // 系统自己会加“其他（自己写）”：agent 写的“其他”类选项去掉，免得客户看到两个
+  // 系统自己会加“其他（自己写）”：agent 写的“其他”类选项去掉，免得受访者看到两个
   const questions = r.success.questions.map((q) =>
     q.kind === "single" || q.kind === "multi"
       ? { ...q, options: q.options.filter((o) => !/^其他([（(：:，,\s].*)?$/.test(o.label.trim())) }
@@ -257,8 +257,8 @@ export const parseAskRound = (
 // ---- 检查点 ----
 
 /**
- * 检查点：每满一个阶段，agent 把“我这一阶段听到的要点”交给客户逐条确认。要点是它的工具入参，
- * 题目由系统生成（agent 不能在检查点里夹带别的题）：每条一道选填的单选——对 / 不确定 / 不对，应该是…（客户自己写）。
+ * 检查点：每满一个阶段，agent 把“我这一阶段听到的要点”交给受访者逐条确认。要点是它的工具入参，
+ * 题目由系统生成（agent 不能在检查点里夹带别的题）：每条一道选填的单选——对 / 不确定 / 不对，应该是…（受访者自己写）。
  */
 export const MIN_CLAIMS = 3;
 export const MAX_CLAIMS = 8;
@@ -290,7 +290,7 @@ export const parseCheckpoint = (
   return {
     ok: true,
     intro: r.success.intro,
-    // 一道多选：勾出“不对的”，什么都不勾 = 全都对。比逐条点“对”轻得多（实测：12 条逐条确认，客户只点了 1 条）。
+    // 一道多选：勾出“不对的”，什么都不勾 = 全都对。比逐条点“对”轻得多（实测：12 条逐条确认，受访者只点了 1 条）。
     questions: [
       {
         kind: "multi",
