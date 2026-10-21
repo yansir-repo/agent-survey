@@ -20,7 +20,7 @@ export class Db extends Context.Service<
     ) => Effect.Effect<Row | undefined>;
     readonly run: (sql: string, params?: ReadonlyArray<unknown>) => Effect.Effect<number>;
   }
->()("grill-me/Db") {}
+>()("agent-survey/Db") {}
 
 export const DbLive = (d1: D1Like): Layer.Layer<Db> =>
   Layer.succeed(Db, {

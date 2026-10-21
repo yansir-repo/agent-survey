@@ -51,7 +51,7 @@ export class Clef extends Context.Service<
     readonly ask: (request: ClefRequest) => Effect.Effect<ClefAnswers, ClefError>;
     readonly noul: (request: NoulRequest) => Effect.Effect<NoulAnswers, ClefError>;
   }
->()("grill-me/Clef") {}
+>()("agent-survey/Clef") {}
 
 type Json = Readonly<Record<string, unknown>>;
 const isObject = (v: unknown): v is Json =>

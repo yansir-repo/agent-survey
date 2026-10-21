@@ -3,7 +3,7 @@ import { defineConfig, type Plugin } from "vite-plus";
 
 /** The Cloudflare plugin copies `.dev.vars` into the build for `vite preview`; release artifacts must not carry it. */
 const withoutDevelopmentSecrets = (): Plugin => ({
-  name: "grill-me-without-development-secrets",
+  name: "agent-survey-without-development-secrets",
   apply: "build",
   enforce: "post",
   generateBundle: {

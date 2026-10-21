@@ -79,7 +79,7 @@ export class Store extends Context.Service<
       params?: ReadonlyArray<SqlValue>,
     ) => Effect.Effect<ReadonlyArray<Row>>;
   }
->()("grill-me/Store") {}
+>()("agent-survey/Store") {}
 
 export class Host extends Context.Service<
   Host,
@@ -103,7 +103,7 @@ export class Host extends Context.Service<
     /** 完成回调：POST 一次 JSON，不重试；返回 HTTP 状态（网络出错 = null），从不抛。 */
     readonly notify: (url: string, body: unknown) => Promise<number | null>;
   }
->()("grill-me/Host") {}
+>()("agent-survey/Host") {}
 
 /** RPC 返回值：不用判别联合（Durable Object 的 RPC 类型对联合不友好）。ok=false 时 error 说明原因。 */
 export type Result = { readonly ok: boolean; readonly error?: string; readonly r2Key?: string };
@@ -662,7 +662,10 @@ const fetchDirect = (raw: string) =>
       fetch(first.url, {
         redirect: "follow",
         signal: AbortSignal.timeout(10_000),
-        headers: { accept: "text/html,text/plain;q=0.9", "user-agent": "grill-me-interviewer/1" },
+        headers: {
+          accept: "text/html,text/plain;q=0.9",
+          "user-agent": "agent-survey-interviewer/1",
+        },
       }),
     ).pipe(Effect.result);
     if (fetched._tag === "Failure")

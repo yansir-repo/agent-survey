@@ -1,6 +1,6 @@
 # AGENTS.md
 
-需求访谈（grill-me）。README 讲用途；本文件是改代码时要守的规矩。
+agent-survey（原名 grill-me）。README 讲用途；本文件是改代码时要守的规矩。
 
 ## 这是什么，不是什么
 
@@ -31,7 +31,7 @@
 
 ## 模板与一次访谈（`src/shared/templates.ts`、`templates/`、`prompt.ts`）
 
-- 设计依据：`docs/design-agent-survey.md`。工具叫 agent-survey（仓库和 Worker 仍叫 grill-me，改名要动部署名，单独做）。
+- 设计依据：`docs/design-agent-survey.md`。仓库、包名、代码里的称呼已是 agent-survey；**部署标识仍是 `grill-me`**（Worker、D1、R2、`workers.dev` 地址）：改 Worker 名 = 一个新 Worker，Durable Object 里进行中的访谈不会跟过去，已发出的链接也失效。只有在没有进行中的访谈、且愿意重发链接时才改。
 - **template** = 目标描述 `goal` + 验收条款 `criteria` + 可选默认（`respondent`、`intro`、`pace`、`capabilities`、`language`）。数据只在 `templates/`，那里是引擎里**唯一**允许懂领域的地方；`src/shared/independence.test.ts` 扫 `src/`，出现领域词就失败。
 - 创建访谈时模板和这次的覆盖（`goal` 整段覆盖 / `append` 追加 / `criteria` …）合成一份**快照**（`resolveTemplate`）存进访谈，之后改模板不影响进行中的访谈。`pace` 与 `capabilities` 默认不设限、全开。
 - 没有“交付物”：不再有 CONTEXT / facts / model、`propose_model`、`record_facts`、两场访谈交接（`--from`）。agent 只有 NOTES.md（工作笔记，受访者看得到：`/api/notes`）。
