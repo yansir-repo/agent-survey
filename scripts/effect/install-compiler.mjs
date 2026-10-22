@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const expectedVersion = "Version 7.0.2+effect-tsgo.0.45.0";
+const expectedVersion = "Version 7.0.2+effect-tsgo.0.56.0";
 const hash = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 function run(root, executable, args) {
   const result = spawnSync(executable, args, { cwd: root, encoding: "utf8", timeout: 30_000 });
@@ -36,7 +36,7 @@ function resolveCompiler(root) {
   const tsgo = require.resolve("@effect/tsgo/package.json");
   for (const [file, version] of [
     [typescript, "7.0.2"],
-    [tsgo, "0.45.0"],
+    [tsgo, "0.56.0"],
   ]) {
     ownedFile(root, file);
     if (JSON.parse(fs.readFileSync(file, "utf8")).version !== version)
@@ -80,9 +80,18 @@ export function installCompiler(root = repository) {
   try {
     ownedFile(root, binary);
     if (hash(binary) === sha256) return { ...verify(root, compiler), changed: false };
+    const reported = run(root, process.execPath, [compiler.entry, "--version"]);
+    if (reported !== "Version 7.0.2") {
+      // Another @effect/tsgo patched this compiler (the pin moved, the typescript package did not
+      // reinstall): its patch left the pristine compiler as the backup, which is the original here.
+      if (!reported.startsWith("Version 7.0.2+effect-tsgo.") || !fs.existsSync(backup))
+        throw Error("Refusing to replace an unexpected TypeScript compiler");
+      ownedFile(root, backup);
+      if (run(root, backup, ["--version"]) !== "Version 7.0.2")
+        throw Error("Unexpected compiler backup; repair installation explicitly");
+      fs.renameSync(backup, binary);
+    }
     const originalHash = hash(binary);
-    if (run(root, process.execPath, [compiler.entry, "--version"]) !== "Version 7.0.2")
-      throw Error("Refusing to replace an unexpected TypeScript compiler");
     if (fs.existsSync(backup)) {
       ownedFile(root, backup);
       if (hash(backup) !== originalHash)

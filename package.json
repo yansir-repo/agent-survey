@@ -15,7 +15,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "2.0.0-beta.sha-52b0dc0e9",
     "@cloudflare/workers-types": "5.20260908.1",
-    "@effect/tsgo": "0.45.0",
+    "@effect/tsgo": "0.56.0",
     "@effect/vitest": "catalog:",
     "@types/node": "22.15.17",
     "@yansircc/effect-scan": "0.1.19",
