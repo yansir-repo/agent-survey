@@ -1,4 +1,3 @@
-/// <reference path="./raw.d.ts" />
 /**
  * template 的数据：引擎里**唯一**允许懂领域的地方（`src/shared/independence.test.ts` 守着这一条）。
  * 一个 template = 目标描述（goal，给 agent 看）+ 验收条款（criteria，结束前逐条验证）+ 一些可选的默认值。
