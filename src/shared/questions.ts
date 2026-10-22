@@ -7,6 +7,7 @@
  *
  * 没有 archive / video：MVP 不支持（见 AGENTS.md）。要加一种方式，就在这里加一项、在 validateAnswer 里加一条规则。
  */
+import { isSecretMarker, MAX_SECRET, SECRET_MARKER } from "./secret.ts";
 import { Schema } from "effect";
 import { sanitizeRich, richText } from "./rich.ts";
 
@@ -80,6 +81,16 @@ const upload = (kind: "image" | "file") =>
     max: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 }))),
   });
 
+/**
+ * A secret (a password, a login): typed in a masked field, encrypted at rest, never shown to the
+ * interviewer or put in the record — only "answered" is (shared/secret.ts).
+ */
+const Secret = Schema.Struct({
+  kind: Schema.Literal("secret"),
+  ...base,
+  placeholder: Schema.optionalKey(Short(200)),
+});
+
 export const Question = Schema.Union([
   Single,
   Multi,
@@ -90,6 +101,7 @@ export const Question = Schema.Union([
   Link,
   upload("image"),
   upload("file"),
+  Secret,
 ]);
 export type Question = typeof Question.Type;
 export type QuestionKind = Question["kind"];
@@ -103,6 +115,7 @@ export const QUESTION_KINDS = [
   "link",
   "image",
   "file",
+  "secret",
 ] as const satisfies ReadonlyArray<QuestionKind>;
 
 export const MAX_QUESTIONS_PER_ROUND = 8;
@@ -416,6 +429,17 @@ export const validateAnswer = (q: Question, raw: unknown): Checked => {
       if (urls.length > (q.max ?? 5)) return bad(`最多 ${q.max ?? 5} 个`);
       const wrong = urls.find((u) => !isUrl(u));
       return wrong ? bad(`不像网址：${wrong}`) : good(urls);
+    }
+    case "secret": {
+      // The marker is what the respondent's page holds once a secret is saved: re-saving it changes nothing.
+      if (isSecretMarker(raw)) return good(SECRET_MARKER);
+      if (typeof raw !== "string") return bad("要填文字");
+      const t = raw.trim();
+      return t === ""
+        ? bad("不能是空的")
+        : t.length > MAX_SECRET
+          ? bad(`最多 ${MAX_SECRET} 个字`)
+          : good(t);
     }
     case "image":
     case "file": {

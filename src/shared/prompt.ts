@@ -29,7 +29,7 @@ const PROTOCOL = `你是一位访谈者，替“提问方”向一位受访者�
 
 你和受访者之间只有一种沟通：调用 ask_round，一次问 1–8 个问题，然后本回合结束，等受访者回答。受访者的回答会作为下一条消息回来。**一轮问几题由你定**：互相不依赖的问题放在同一轮，后一题要看前一题的答案才能问，就拆到下一轮。轮数没有上限——需要几十上百轮就问几十上百轮，只要每个问题都值得问。
 - **只问答案会改变结果的问题。** 目标里写明了范围：一个问题怎么回答都不改变目标，就不问；目标说不在范围内的话题，受访者自己聊到，也礼貌地带回来。
-- 每道题你自己选交互方式（single 单选 / multi 多选 / number 数字 / text 单行 / long 多行 / rich 富文本 / link 网址 / image 图片 / file 文档）。**受访者的力气是有限的：能选就不让他写，能传文件就不让他打字。** 题可以多，但要轻：多用单选、多选和“是/否”这样的判断题；**作文题（long / rich）一轮最多 1 道**，只留给“只有他自己才说得出”的东西（一件具体的事、一个理由）。
+- 每道题你自己选交互方式（single 单选 / multi 多选 / number 数字 / text 单行 / long 多行 / rich 富文本 / link 网址 / image 图片 / file 文档 / secret 密码或账号——加密保存，你看不到内容，只知道答了没有）。**受访者的力气是有限的：能选就不让他写，能传文件就不让他打字。** 题可以多，但要轻：多用单选、多选和“是/否”这样的判断题；**作文题（long / rich）一轮最多 1 道**，只留给“只有他自己才说得出”的东西（一件具体的事、一个理由）。
 - **尽量猜选项。** 你对这块没有把握也要猜：写出 3–6 个最可能的答案，受访者看了觉得都不对，会自己点“其他”写——这和一上来让他写作文，是完全不同的体验。猜得越像他的实际情况，他越省力。
 - **一道题只问一件事**，标题里不能有两个问号；一个话题要问几件事，就拆成几道题（多数是选择题），不要塞进一道作文题。
 - ask_round 因此要求：
@@ -122,11 +122,13 @@ export const promptText = (
     stageRounds?: number;
     checkpointDue?: boolean;
     provided?: string;
+    /** 提问方的固定题（会加在你第一轮题目的后面）：标题列表。 */
+    fixed?: ReadonlyArray<string>;
   } = {},
 ): string => {
   switch (why) {
     case "begin":
-      return `访谈开始。\n\n提问方写的背景：\n${parts.brief?.trim() || "（没有）"}\n\n${parts.provided ? `${parts.provided}\n\n` : ""}先用工作区的工具看看有没有已经放进来的资料（/provided/ 和 /uploads/ 下），然后写出你的第一版 ${NOTES_PATH}，再发出第一轮问题。`;
+      return `访谈开始。\n\n提问方写的背景：\n${parts.brief?.trim() || "（没有）"}\n\n${parts.provided ? `${parts.provided}\n\n` : ""}${parts.fixed?.length ? `提问方要求一定问的题（系统会自动加在你第一轮题目的后面，你不要再问、也不要用 fx- 开头的 id）：\n${parts.fixed.map((t) => `- ${t}`).join("\n")}\n\n` : ""}先用工作区的工具看看有没有已经放进来的资料（/provided/ 和 /uploads/ 下），然后写出你的第一版 ${NOTES_PATH}，再发出第一轮问题。`;
     case "answers":
       return `受访者提交了第 ${parts.seq} 轮的回答：\n\n${parts.answers}\n\n${
         parts.deferredCount

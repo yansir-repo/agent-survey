@@ -30,6 +30,8 @@ export const valueMarkdown = (q: Question, v: Value, files: ReadonlyArray<FileIn
       return (v as ReadonlyArray<string>).map((x) => `- ${x}`).join("\n");
     case "rich":
       return richToMarkdown(String(v));
+    case "secret":
+      return "受访者已填写（加密保存，你看不到内容，也不要让他在别处再写一遍；只需知道已经给了）";
     case "image":
     case "file":
       return (v as ReadonlyArray<string>)

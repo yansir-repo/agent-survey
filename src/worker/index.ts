@@ -304,7 +304,7 @@ const adminRoute = (db: D1Like) =>
         return json({ interviews: rows });
       }
       const one =
-        /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result|\/materials|\/start)?$/.exec(
+        /^\/admin\/interviews\/([a-z0-9-]+)(\/rotate|\/file|\/result|\/materials|\/start|\/secrets\/[a-z0-9_-]+)?$/i.exec(
           path,
         );
       if (one) {
@@ -370,6 +370,16 @@ const adminRoute = (db: D1Like) =>
                 contentType: "text/markdown; charset=utf-8",
               })
             : json({ ok: true, ...out });
+        }
+        if (one[2]?.startsWith("/secrets/") && method === "GET") {
+          // A secret answer, decrypted for the inquirer (Bearer only, like every /admin route); the read is recorded.
+          const out = yield* rpc(() =>
+            stubOf(code).revealSecret(one[2]!.slice("/secrets/".length)),
+          );
+          return json(
+            out.ok ? { ok: true, value: out.value } : { ok: false, error: out.error },
+            out.ok ? 200 : 404,
+          );
         }
         if (one[2] === "/file" && method === "GET") {
           const text = yield* rpc(() =>

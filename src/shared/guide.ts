@@ -51,6 +51,7 @@ export const guideText = (o: {
 | \`GET /admin/interviews\` | 列表：code、url、phase、轮数 |
 | \`GET /admin/interviews/<code>/result\` | **取记录**（JSON）；\`?format=md\` 是同一份的人读版 |
 | \`GET /admin/interviews/<code>\` | 全部内容（所有轮次、答案、对话统计）——体积大，调试才用 |
+| \`GET /admin/interviews/<code>/secrets/<题号>\` | 解密读出一道 \`secret\`（密码 / 账号）题的答案，每次读取都记下时间；记录和 \`/result\` 里这类题只有一个标记，没有明文 |
 | \`GET /admin/interviews/<code>/file?path=…\` | 读访谈者工作区里的任一文件（受访者上传和预置的文件转成的文字、agent 的笔记） |
 | \`POST /admin/interviews/<code>/materials\` | 预置资料：multipart（\`source\` + 多个 \`file\`）或 JSON \`{source, urls}\`，见下 |
 | \`POST /admin/interviews/<code>/start\` | 创建时给了 \`start: false\` 才需要：资料放完，让访谈者开始 |
@@ -72,6 +73,7 @@ export const guideText = (o: {
 - \`criteria\`：验收条款，字符串数组（最多 ${MAX_CRITERIA} 条），覆盖模板里的。**每条是一句能答“是 / 否”的陈述**，比如“问清了谁拍板”。有条款，访谈者想结束时，一位独立的检查者会**只对着受访者的原始回答**逐条核对，每条要引用记录里的一句原话作依据（引擎会核对这句话真的在记录里）；不满足的最多拦结束 2 次，之后放行并把没满足的写进记录。没有条款 = 不验证。
 - \`respondent\`：受访者说明（外行还是专家，决定减负门的松紧）；\`intro\`：开场说明，给受访者看的（谁在问、为什么问、大约多久）；\`language\`：默认中文。
 - \`pace\`：\`{ maxRounds?, perRound? }\`，**不写 = 不设限**。\`capabilities\`：\`{ web?, search?, uploads? }\`，**不写 = 全开**（\`uploads: false\` 时访谈者不能出文件 / 图片题）。受访者仍可以在每轮底部自己补充内容。
+- \`fixed\`：固定题，题目数组（最多 8 题，形状同题型，\`id\` 会被加上 \`fx-\` 前缀）：一定会问、跟在第一轮 agent 题后面，例如要收的账号密码（用 \`secret\` 题型）。
 - \`notify\`：完成回调地址（http/https）。结束时 POST 一次 \`{ id, phase: "done", resultUrl }\`；**不重试、不签名、不保证送达**，你仍然可以轮询。
 - \`urls\`：预置网址 \`[{url, source}]\`（见下“预置资料”），最多 20 个，要过公网地址检查。
 - \`start\`：默认 true（立刻开始）；要先放文件就给 false，放完再调 \`/start\`——命令行的 \`--material\` 替你做了这三步。

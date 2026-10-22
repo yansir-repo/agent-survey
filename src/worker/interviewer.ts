@@ -19,6 +19,7 @@ import {
 import { jsonSchema, tool, type JSONSchema7, type LanguageModel, type ToolSet } from "ai";
 import { Effect, Layer, Schema } from "effect";
 import { Clef, ClefLive } from "./clef.ts";
+import { openSecret, sealSecret } from "./secret-crypto.ts";
 import type { InterviewView } from "../shared/api.ts";
 import { describeCall, pushActivity } from "../shared/activity.ts";
 import { liveView } from "../shared/live.ts";
@@ -45,6 +46,7 @@ import {
   noteFinding,
   r2Keys,
   readWorkspace,
+  revealSecret,
   removeFile,
   searchWeb,
   resume,
@@ -164,6 +166,8 @@ export class Interviewer extends Think<Cloudflare.Env> {
           (r) => r.status,
           () => null,
         ),
+      seal: (plain) => sealSecret(this.env.SECRETS_KEY, plain),
+      open: (iv, ct) => openSecret(this.env.SECRETS_KEY, iv, ct),
       send: (text, key) =>
         this.submitMessages(
           [{ id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text }] }],
@@ -371,5 +375,11 @@ export class Interviewer extends Think<Cloudflare.Env> {
   }
   readWorkspace(path: string): Promise<string | null> {
     return this.run(readWorkspace(path));
+  }
+  /** The inquirer reads a secret answer back (the route is Bearer-only); the read is recorded. */
+  revealSecret(
+    qid: string,
+  ): Promise<{ readonly ok: boolean; readonly value?: string; readonly error?: string }> {
+    return this.run(revealSecret(qid));
   }
 }

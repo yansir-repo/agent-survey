@@ -1,3 +1,5 @@
 DEEPSEEK_API_KEY=
 DEEPSEEK_MODEL=deepseek-flash
 ADMIN_TOKEN=
+# 密码类答案的加密密钥：32 字节 base64（openssl rand -base64 32）
+SECRETS_KEY=

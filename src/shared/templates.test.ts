@@ -82,3 +82,24 @@ describe("specOf: a snapshot an older interview left behind", () => {
     expect(specOf(null)).toEqual(DEFAULT_SPEC);
   });
 });
+
+describe("fixed questions", () => {
+  it("take the inquirer's questions, prefix their ids, and refuse a malformed one", () => {
+    const r = resolveTemplate({
+      template: "blank",
+      goal: "收上线要用的权限",
+      fixed: [
+        { id: "host-pw", kind: "secret", title: "主机后台密码", why: "搬站要登录" },
+        { kind: "text", title: "域名注册商", why: "改解析" },
+      ],
+    });
+    expect(r.ok && r.spec.fixed.map((q) => [q.id, q.kind])).toEqual([
+      ["fx-host-pw", "secret"],
+      ["fx-q2", "text"],
+    ]);
+    expect(resolveTemplate({ template: "blank", fixed: [{ kind: "secret" }] }).ok).toBe(false);
+    expect(
+      specOf({ fixed: [{ id: "fx-a", kind: "secret", title: "t", why: "w" }, { junk: 1 }] }).fixed,
+    ).toHaveLength(1);
+  });
+});

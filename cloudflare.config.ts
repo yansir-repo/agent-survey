@@ -37,6 +37,8 @@ export default defineConfig((ctx) => ({
       DEEPSEEK_MODEL: bindings.text("deepseek-flash"),
       // 运营接口（创建访谈、看进度）的凭证：Authorization: Bearer <ADMIN_TOKEN>。见 AGENTS.md。
       ADMIN_TOKEN: bindings.secret(),
+      // 密码类答案的加密密钥（32 字节 base64，shared/secret.ts）：DO 里只存密文。
+      SECRETS_KEY: bindings.secret(),
       PUBLIC_URL: bindings.text(
         ctx.mode === "development"
           ? "http://localhost:5173"

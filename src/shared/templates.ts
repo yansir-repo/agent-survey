@@ -5,7 +5,9 @@
  * 创建访谈时，模板和这次的覆盖合成一份**快照**（`Spec` + goal 文本）存进访谈：之后改模板不影响进行中的访谈。
  * 节奏和能力**默认不设限**：不写就是不限、全开；字段留着，以后随时能收紧。
  */
+import { Schema } from "effect";
 import { TEMPLATE_DATA } from "../../templates/index.ts";
+import { Question } from "./questions.ts";
 
 export type TemplateData = {
   readonly version: number;
@@ -50,7 +52,16 @@ export type Spec = {
   readonly language: string;
   /** 完成回调地址；空 = 不回调。 */
   readonly notify: string;
+  /**
+   * 固定题：提问方指定、一定会问的题（例如要收的账号密码），加在第一轮 agent 题的后面，id 以 `fx-` 开头。
+   * agent 不能用 `fx-` 开头的 id，也看得到它们已经问了。
+   */
+  readonly fixed: ReadonlyArray<Question>;
 };
+
+export const FIXED_PREFIX = "fx-";
+export const MAX_FIXED = 8;
+const decodeQuestion = Schema.decodeUnknownResult(Question, { onExcessProperty: "error" });
 
 export const DEFAULT_SPEC: Spec = {
   template: { name: DEFAULT_TEMPLATE, version: 1 },
@@ -61,6 +72,7 @@ export const DEFAULT_SPEC: Spec = {
   capabilities: { web: true, search: true, uploads: true },
   language: DEFAULT_LANGUAGE,
   notify: "",
+  fixed: [],
 };
 
 const rec = (x: unknown): Record<string, unknown> =>
@@ -94,6 +106,12 @@ export const specOf = (raw: unknown): Spec => {
     language:
       typeof o["language"] === "string" && o["language"] !== "" ? o["language"] : d.language,
     notify: typeof o["notify"] === "string" ? o["notify"] : d.notify,
+    fixed: Array.isArray(o["fixed"])
+      ? o["fixed"].flatMap((x) => {
+          const r = decodeQuestion(x);
+          return r._tag === "Success" ? [r.success] : [];
+        })
+      : d.fixed,
   };
 };
 
@@ -159,6 +177,31 @@ export const resolveTemplate = (body: Readonly<Record<string, unknown>>): Resolv
     if (cap[key] !== undefined && typeof cap[key] !== "boolean")
       return { ok: false, error: `capabilities.${key} 要是 true 或 false（不写 = 开）` };
 
+  let fixed: ReadonlyArray<Question> = [];
+  if (body["fixed"] !== undefined) {
+    const given = body["fixed"];
+    if (!Array.isArray(given) || given.length > MAX_FIXED)
+      return { ok: false, error: `fixed 要是一个题目数组（最多 ${MAX_FIXED} 题）` };
+    const out: Question[] = [];
+    for (const [i, raw] of given.entries()) {
+      const o = rec(raw);
+      const id = str(o["id"]) || `q${i + 1}`;
+      const r = decodeQuestion({
+        ...o,
+        id: id.startsWith(FIXED_PREFIX) ? id : `${FIXED_PREFIX}${id}`,
+      });
+      if (r._tag === "Failure")
+        return {
+          ok: false,
+          error: `fixed 第 ${i + 1} 题不合格：${String(r.failure).slice(0, 200)}`,
+        };
+      out.push(r.success);
+    }
+    if (new Set(out.map((x) => x.id)).size !== out.length)
+      return { ok: false, error: "fixed 里有重复的 id" };
+    fixed = out;
+  }
+
   const notify = str(body["notify"]);
   if (notify !== "" && !(/^https?:\/\/\S+$/i.test(notify) && notify.length <= 500))
     return { ok: false, error: "notify 要是一个 http(s) 地址" };
@@ -173,6 +216,7 @@ export const resolveTemplate = (body: Readonly<Record<string, unknown>>): Resolv
     capabilities: cap,
     language: str(body["language"]) || tpl?.language || DEFAULT_LANGUAGE,
     notify,
+    fixed,
   });
   return {
     ok: true,

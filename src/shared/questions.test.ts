@@ -1,3 +1,5 @@
+import { valueMarkdown } from "./render.ts";
+import { SECRET_MARKER } from "./secret.ts";
 import { describe, expect, it } from "vitest";
 import {
   OTHER_PREFIX,
@@ -27,6 +29,7 @@ describe("the closed vocabulary", () => {
       "link",
       "image",
       "file",
+      "secret",
     ]);
   });
 });
@@ -190,6 +193,19 @@ describe("the free-text 'other' option the system adds to every single/multi que
     expect(validateAnswer(multi, [`${OTHER_PREFIX}C`, `${OTHER_PREFIX}D`]).ok).toBe(false);
     expect(validateAnswer(multi, ["A", OTHER_PREFIX]).ok).toBe(false);
     expect(validateAnswer(multi, ["Z"]).ok).toBe(false);
+  });
+});
+
+describe("secret answers", () => {
+  const secret = { id: "pw", kind: "secret", title: "主机密码", why: "要登录" } as const;
+  it("takes text, refuses empty, and accepts the stored marker as already saved", () => {
+    expect(validateAnswer(secret, "  p@ss  ")).toEqual({ ok: true, value: "p@ss" });
+    expect(validateAnswer(secret, " ").ok).toBe(false);
+    expect(validateAnswer(secret, SECRET_MARKER)).toEqual({ ok: true, value: SECRET_MARKER });
+  });
+  it("the interviewer is told it was answered, never what", () => {
+    expect(valueMarkdown(secret, SECRET_MARKER, [])).not.toContain(SECRET_MARKER);
+    expect(valueMarkdown(secret, SECRET_MARKER, [])).toContain("看不到内容");
   });
 });
 

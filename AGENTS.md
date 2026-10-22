@@ -10,7 +10,7 @@ agent-survey（原名 grill-me）。README 讲用途；本文件是改代码时�
 
 ## 设计的不变量（改之前先看它们）
 
-1. **问题的词表是封闭的**（`src/shared/questions.ts`）：agent 每题自己选交互方式，但方式只有 single / multi / number / text / long / rich / link / image / file。
+1. **问题的词表是封闭的**（`src/shared/questions.ts`）：agent 每题自己选交互方式，但方式只有 single / multi / number / text / long / rich / link / image / file / secret。**secret（密码、账号）的明文只以 AES-GCM 密文存在 DO 的 `secrets` 表**（密钥 `SECRETS_KEY`，`src/worker/secret-crypto.ts`）；`answers` 表里只有标记 `SECRET_MARKER`（`src/shared/secret.ts`），所以访谈者的上下文、记录、`/result`、受访者页面、管理快照拿到的都只是标记——这是构造保证的，不是逐处打补丁。只有 `GET /admin/interviews/<code>/secrets/<qid>`（Bearer）解密，并记下读取时间。提问方可以在创建时给 `fixed` 固定题（id 自动加 `fx-` 前缀），它们跟在第一轮 agent 题后面。
    同一份 Effect Schema 是 TS 类型、agent 的工具入参、客户端渲染的依据。加一种方式 = 在这里加一项 + `validateAnswer` 加一条规则 + 客户端渲染一条，别处不用动。
    MVP **没有 archive 和 video**（见下）。
 2. **客户没答的题一个都不会丢**（`src/shared/machine.ts`，纯函数，配 `machine.test.ts`）：客户选“稍后再答”的题进 `deferred`；agent 结束时只要还有，就由**系统**开一轮“回头补答”——agent 没有重新问的权力，也没有忘记的可能。补答那一轮之后仍没答的是“待确认”，访谈结束，**不替客户编**。

@@ -15,6 +15,8 @@ declare namespace Cloudflare {
     AIHUBMIX_API_KEY: string;
     DEEPSEEK_MODEL: string;
     ADMIN_TOKEN: string;
+    /** 密码类答案的加密密钥：32 字节的 base64（shared/secret.ts）。没有或 none = 不能收密码类答案。 */
+    SECRETS_KEY?: string;
     PUBLIC_URL: string;
   }
 }

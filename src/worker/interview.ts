@@ -28,6 +28,7 @@ import { NOTES_PATH, promptText } from "../shared/prompt.ts";
 import {
   DEFAULT_SPEC,
   DEFAULT_TEMPLATE,
+  FIXED_PREFIX,
   TEMPLATES,
   specOf,
   type Spec,
@@ -64,6 +65,7 @@ import { repeatsPending } from "../shared/repeat.ts";
 import { FetchOut, SearchOut, formatSearch } from "../shared/web.ts";
 import { answersMarkdown, type Answered } from "../shared/render.ts";
 import { checkPublicUrl } from "../shared/url-guard.ts";
+import { isSecretMarker, SECRET_MARKER } from "../shared/secret.ts";
 import { htmlToMarkdown } from "./convert.ts";
 
 // ---- 服务 ----
@@ -102,6 +104,10 @@ export class Host extends Context.Service<
     readonly origin: string;
     /** 完成回调：POST 一次 JSON，不重试；返回 HTTP 状态（网络出错 = null），从不抛。 */
     readonly notify: (url: string, body: unknown) => Promise<number | null>;
+    /** 加密一个密码类答案（AES-GCM，密钥是 SECRETS_KEY）；没配密钥 = null。 */
+    readonly seal: (plain: string) => Promise<{ readonly iv: string; readonly ct: string } | null>;
+    /** 解密；密钥不对或数据坏了 = null。 */
+    readonly open: (iv: string, ct: string) => Promise<string | null>;
   }
 >()("agent-survey/Host") {}
 
@@ -135,6 +141,10 @@ export const ensureSchema = Effect.gen(function* () {
     "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, qid TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL, mime TEXT NOT NULL, r2_key TEXT NOT NULL, status TEXT NOT NULL, tokens INTEGER, note TEXT, created_at INTEGER NOT NULL)",
   );
   yield* q("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+  // 密码类答案的密文（shared/secret.ts）：answers 里只放标记，明文从不落库。
+  yield* q(
+    "CREATE TABLE IF NOT EXISTS secrets (qid TEXT PRIMARY KEY, iv TEXT NOT NULL, ct TEXT NOT NULL, created_at INTEGER NOT NULL, revealed_at INTEGER)",
+  );
 });
 
 const kvGet = (k: string) =>
@@ -352,8 +362,16 @@ export const askRound = (raw: unknown) =>
         ok: false,
         message: `这场访谈最多问 ${spec.pace.maxRounds} 轮，已经问满了：不要再 ask_round，调用 finish_interview。`,
       };
-    const used = new Set((yield* allQuestions).map((x) => x.id));
+    const used = new Set([
+      ...(yield* allQuestions).map((x) => x.id),
+      ...spec.fixed.map((x) => x.id),
+    ]);
     const parsed = parseAskRound(raw, used, yield* respondentWords);
+    if (parsed.ok && parsed.round.questions.some((x) => x.id.startsWith(FIXED_PREFIX)))
+      return {
+        ok: false,
+        message: `题目 id 不能以 ${FIXED_PREFIX} 开头（那是提问方的固定题）。改正后重新调用 ask_round。`,
+      };
     if (!parsed.ok) {
       yield* bump("askRefused");
       yield* kvSet(`refusal.${yield* Clock.currentTimeMillis}`, parsed.error.slice(0, 600));
@@ -417,13 +435,16 @@ export const askRound = (raw: unknown) =>
     yield* kvSet("clef.refused", "0");
     const seq = (yield* roundRows).length + 1;
     const id = `r${seq}`;
+    // The inquirer's fixed questions ride along with the first round the agent asks, after its own.
+    const questions =
+      askedRounds === 0 ? [...parsed.round.questions, ...spec.fixed] : parsed.round.questions;
     yield* q(
       "INSERT INTO rounds (id, seq, kind, intro, understanding, questions, status, created_at) VALUES (?, ?, 'agent', ?, ?, ?, 'open', ?)",
       id,
       seq,
       parsed.round.intro,
       JSON.stringify(parsed.round.understanding ?? []),
-      JSON.stringify(parsed.round.questions),
+      JSON.stringify(questions),
       yield* Clock.currentTimeMillis,
     );
     yield* kvSet(`delta.${id}`, parsed.round.delta);
@@ -812,8 +833,9 @@ const startTurn = Effect.gen(function* () {
   const files = yield* fileInfos;
   const listing = providedListing(files, yield* providedUrls, (p) => `/${markdownPath(p)}`);
   const brief = (yield* kvGet("brief")) ?? "";
+  const fixed = (yield* loadSpec).fixed.map((x) => x.title);
   yield* Effect.promise(() =>
-    host.send(promptText("begin", { brief, provided: listing }), "begin"),
+    host.send(promptText("begin", { brief, provided: listing, fixed }), "begin"),
   );
 });
 
@@ -933,6 +955,23 @@ export const saveAnswer = (qid: string, value: unknown, skip: boolean) =>
     }
     const checked = validateAnswer(question, value);
     if (!checked.ok) return refuse(checked.error);
+    if (question.kind === "secret" && !isSecretMarker(checked.value)) {
+      // The plaintext goes into the secrets table encrypted, and only the marker into answers.
+      const host = yield* Host;
+      const sealed = yield* Effect.promise(() => host.seal(String(checked.value)));
+      if (!sealed) return refuse("服务端没配加密密钥，密码类答案先不能存");
+      yield* q(
+        "INSERT INTO secrets (qid, iv, ct, created_at, revealed_at) VALUES (?, ?, ?, ?, NULL) ON CONFLICT(qid) DO UPDATE SET iv = excluded.iv, ct = excluded.ct, created_at = excluded.created_at, revealed_at = NULL",
+        qid,
+        sealed.iv,
+        sealed.ct,
+        now,
+      );
+    }
+    if (question.kind === "secret" && isSecretMarker(checked.value)) {
+      const have = yield* q("SELECT qid FROM secrets WHERE qid = ?", qid);
+      if (have.length === 0) return refuse("这道题还没有保存过内容");
+    }
     if (question.kind === "image" || question.kind === "file") {
       const have = new Set((yield* fileInfos).map((f) => f.path));
       if ((checked.value as ReadonlyArray<string>).some((p) => !have.has(p)))
@@ -942,10 +981,30 @@ export const saveAnswer = (qid: string, value: unknown, skip: boolean) =>
       "INSERT INTO answers (qid, round_id, value, skipped, updated_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(qid) DO UPDATE SET value = excluded.value, skipped = 0, updated_at = excluded.updated_at",
       qid,
       round.id,
-      JSON.stringify(checked.value),
+      JSON.stringify(question.kind === "secret" ? SECRET_MARKER : checked.value),
       now,
     );
     return OK;
+  });
+
+/**
+ * The inquirer reads one secret back (Bearer-only route). Each read is recorded (`revealed_at`), so the
+ * record of who saw what is the interview's own.
+ */
+export const revealSecret = (qid: string) =>
+  Effect.gen(function* () {
+    const rows = yield* q("SELECT iv, ct FROM secrets WHERE qid = ?", qid);
+    const row = rows[0];
+    if (!row) return { ok: false, error: "这道题没有保存的密码类答案" } as const;
+    const host = yield* Host;
+    const plain = yield* Effect.promise(() => host.open(text(row, "iv"), text(row, "ct")));
+    if (plain === null) return { ok: false, error: "解不开（密钥变了或数据坏了）" } as const;
+    yield* q(
+      "UPDATE secrets SET revealed_at = ? WHERE qid = ?",
+      yield* Clock.currentTimeMillis,
+      qid,
+    );
+    return { ok: true, value: plain } as const;
   });
 
 /** 提交这一轮：每题要么答了、要么跳过（回头补答那一轮可以留空）。幂等。 */

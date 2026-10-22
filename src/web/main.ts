@@ -2,6 +2,7 @@
  * 客户端：一个访谈页。服务端是唯一的真相（轮次、答案、文件都在访谈者的 Durable Object 里），这里只渲染它给的 InterviewView，
  * 把受访者的输入存回去（答一题存一题）。没有框架：一个 render()，输入时只更新这一题的底部，不重绘（否则光标和富文本选区会丢）。
  */
+import { isSecretMarker } from "../shared/secret.ts";
 import "./style.css";
 import type { FileInfo, InterviewView } from "../shared/api.ts";
 import { acceptFor, acceptsKind, formatsText, rejectReason } from "../shared/files.ts";
@@ -27,6 +28,7 @@ const KIND_NAME: Record<Question["kind"], string> = {
   link: "链接",
   image: "图片",
   file: "文档",
+  secret: "密码 / 账号",
 };
 
 const base = location.pathname.replace(/\/$/, "");
@@ -326,6 +328,11 @@ const bodyHtml = (q: Question): string => {
       return `<textarea rows="4" data-in="${q.id}" placeholder="${esc(q.placeholder ?? "")}">${esc(a ?? "")}</textarea>`;
     case "text":
       return `<input type="text" data-in="${q.id}" placeholder="${esc(q.placeholder ?? "")}" value="${esc(a ?? "")}">`;
+    case "secret":
+      // Once saved, the page only gets the marker back: show that it is stored, never the value.
+      return isSecretMarker(a)
+        ? `<p class="hint">已保存（加密，页面上不再显示）。要改就重新填：</p><input type="password" autocomplete="new-password" data-in="${q.id}" placeholder="${esc(q.placeholder ?? "")}" value="">`
+        : `<input type="password" autocomplete="new-password" data-in="${q.id}" placeholder="${esc(q.placeholder ?? "")}" value="${esc(a ?? "")}">`;
     case "number":
       return `<div class="numrow"><input type="number" data-in="${q.id}" value="${esc(a ?? "")}">${q.unit ? `<span>${esc(q.unit)}</span>` : ""}</div>`;
     case "single":
