@@ -13,7 +13,7 @@
  */
 import { env } from "cloudflare:workers";
 import { Cause, Effect, Layer, Schema } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { DbLive, type D1Like } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
 import { DEFAULT_MODEL, MODELS, resolveModel } from "../shared/models.ts";
