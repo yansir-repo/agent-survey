@@ -28,7 +28,8 @@ node scripts/invite.ts wait --code acme-2026 --md record.md   # 等到结束再�
 
 ```sh
 pnpm install
-pnpm exec vp run ci          # 类型 + lint + 测试 + check:effect + build
+pnpm exec vp run ci          # 类型 + lint + 测试 + build（CI 跑的就是这个）
+pnpm exec vp run check:effect  # 原生 effect-scan，只在本地（pre-push/deploy）；安装见 AGENTS.md
 pnpm exec vp run db:migrate && pnpm exec vp dev
 ```
 

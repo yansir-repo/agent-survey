@@ -9,7 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  # The same judgments as pre-push (`vp run ci`): types, lint, tests, effect scan, build.
+  # `vp run ci`: types, lint, tests, build (`JUDGMENTS` in vite.config.ts). The Effect scanner
+  # (`check:effect`) is a native binary CI cannot install; it runs only in pre-push and deploy.
   gate:
     runs-on: ubuntu-24.04
     steps:

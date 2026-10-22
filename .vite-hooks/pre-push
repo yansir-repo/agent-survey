@@ -1,6 +1,7 @@
 #!/bin/sh
-# Push-time half of the gate: the same judgments CI's `verify` makes (`pre-push` in
-# vite.config.ts), so a push cannot pass what CI fails. `build` stays CI's own last step.
+# Push-time half of the gate: the judgments CI makes (`JUDGMENTS` in vite.config.ts) plus the
+# ones only this machine makes (`LOCAL_ONLY_JUDGMENTS`: the native Effect scanner), so a push cannot
+# pass what CI fails. Bypassing this hook bypasses the Effect gate. `build` stays CI's own last step.
 #
 # Installed by `vp config --hooks` (which runs from `postinstall`); the dispatcher that calls this
 # file is generated into `.vite-hooks/_/`, which is not committed. Opt out per clone with

@@ -86,8 +86,10 @@ agent-survey（原名 grill-me）。README 讲用途；本文件是改代码时�
 
 ## 门禁（人和 agent 走同一条）
 
-- `vp run ci` = 类型（web / worker / shared / scripts 四个工程）+ lint + 测试 + `check:effect` + build。`pre-push` 和 CI 跑同一个列表。
-- `check:effect` 必须通过：业务代码不用 `async`/`await`/`Date.now()`/`try/catch`；时间用 `Clock`；`.effect-skill.json` 是清单（可执行边缘只有 `interviewer.ts` 的 `runInterviewEffect`）。
+- `vp run ci` = 类型（web / worker / shared / scripts 四个工程）+ lint + 测试 + build（`vite.config.ts` 的 `JUDGMENTS`）。CI 只跑它。
+- `check:effect` 只在本地跑（`LOCAL_ONLY_JUDGMENTS`）：`pre-push` = `JUDGMENTS` + `check:effect`，`deploy` 也跑它；CI 装不了原生扫描器，所以不跑。**`git push --no-verify` 就跳过了 Effect 门，远端没有任何东西兜底。**
+- `check:effect` 是原生 `effect-scan`（`scripts/effect/strict.mjs`），**error 和 warning 都算失败**。它要的扫描器构建钉在 `scripts/effect/scanner.json`（唯一写版本的地方）：在 effect-ecosystem 仓库 `git checkout <gitCommit>` 后 `make install`（装到 `~/.local/bin/effect-scan`），或用 `EFFECT_SCAN_BIN` 指向 `--build-info` 的 buildId 相符的二进制；缺二进制或构建不符是**失败，不是跳过**。换构建：改 `scanner.json`、修它读出的问题，同一个 commit。旧的 npm 包 `@yansircc/effect-scan` 已移除。证据写在 `data/effect-evidence/`。
+- `check:effect` 必须通过：业务代码不用 `async`/`await`/`Date.now()`/`try/catch`；时间用 `Clock`；`.effect-skill.json` 是清单（可执行边缘只有 `interviewer.ts` 的 `runInterviewEffect`；D1 只经 `@effect/sql-d1` 的 `SqlClient`；`ai` / `@ai-sdk/openai-compatible` 是 Think 的契约要的，在 `nativeDependencyBoundaries` 里逐个声明）。
 - 本地：`pnpm exec vp run db:migrate && pnpm exec vp dev`。**本地没有 `AI` 绑定**（Workers AI 只能远程）：纯文本和 CSV 能转，PDF/Office/图片只能线上验。
 - **Durable Object 的 RPC 可能比 Think 的 `onStart` 先到**：部署后 DO 第一次被醒来就收到上传时，`this.workspace` 还是 undefined（实测）。`interviewer.ts` 的 `ws()` 按 Think 的同一种建法先建好，Think 之后沿用。动工作区的新代码一律走 `ws()`。
 - `node scripts/play.mjs --base <url> --code <新 code>`：扮演客户和真 agent 跑完整个访谈（创建 → 回答 → 跳过 → 回头补答 → 结束 → 打印 CONTEXT.md）。会花模型 token，不在门禁里；改了流程、提示词、词表之后跑一次。
