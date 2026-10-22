@@ -1,60 +1,21 @@
 /**
- * D1, as an Effect service. A failed statement is a defect: the app has no meaningful recovery from a
- * broken database, and the RPC layer reports defects as such.
+ * D1, through Effect SQL: `@effect/sql-d1` turns the binding into the `SqlClient` the registry
+ * queries. A failed statement is a defect: the app has no meaningful recovery from a broken
+ * database, and the RPC layer reports defects as such — `statement` makes it one where it is run.
  */
-import { Context, Effect, Layer } from "effect";
+import { D1Client } from "@effect/sql-d1";
+import { Effect, Layer } from "effect";
+import type { SqlClient, SqlError } from "effect/sql";
 
 export type Row = Readonly<Record<string, unknown>>;
-export type D1Like = Pick<D1Database, "prepare" | "batch">;
 
-export class Db extends Context.Service<
-  Db,
-  {
-    readonly all: (
-      sql: string,
-      params?: ReadonlyArray<unknown>,
-    ) => Effect.Effect<ReadonlyArray<Row>>;
-    readonly first: (
-      sql: string,
-      params?: ReadonlyArray<unknown>,
-    ) => Effect.Effect<Row | undefined>;
-    readonly run: (sql: string, params?: ReadonlyArray<unknown>) => Effect.Effect<number>;
-  }
->()("agent-survey/Db") {}
+/** A config-free layer over a concrete binding: its ConfigError channel cannot fire. */
+export const DbLive = (d1: D1Database): Layer.Layer<SqlClient.SqlClient> =>
+  Layer.orDie(D1Client.layer({ db: d1 }));
 
-export const DbLive = (d1: D1Like): Layer.Layer<Db> =>
-  Layer.succeed(Db, {
-    all: (sql, params = []) =>
-      Effect.promise(() =>
-        d1
-          .prepare(sql)
-          .bind(...params)
-          .all<Row>(),
-      ).pipe(
-        Effect.map((r) => r.results),
-        Effect.withSpan("db.all"),
-      ),
-    first: (sql, params = []) =>
-      Effect.promise(() =>
-        d1
-          .prepare(sql)
-          .bind(...params)
-          .first<Row>(),
-      ).pipe(
-        Effect.map((r) => r ?? undefined),
-        Effect.withSpan("db.first"),
-      ),
-    run: (sql, params = []) =>
-      Effect.promise(() =>
-        d1
-          .prepare(sql)
-          .bind(...params)
-          .run(),
-      ).pipe(
-        Effect.map((r) => r.meta.changes),
-        Effect.withSpan("db.run"),
-      ),
-  });
+export const statement: <A, R>(
+  self: Effect.Effect<A, SqlError.SqlError, R>,
+) => Effect.Effect<A, never, R> = Effect.orDie;
 
 // ---- reading untyped rows ----------------------------------------------------------------------
 

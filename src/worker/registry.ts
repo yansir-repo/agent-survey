@@ -3,8 +3,9 @@
  * 受访者的地址是 `/i/<code>.<key>`：key 就是门；对错一律同一种 404，不泄露哪个 code 存在。
  */
 import { Data, Effect } from "effect";
+import { SqlClient } from "effect/sql";
 import { nowSeconds } from "./clock.ts";
-import { Db, num, str } from "./db.ts";
+import { num, statement, str, type Row } from "./db.ts";
 
 export class InterviewExists extends Data.TaggedError("InterviewExists")<{
   readonly code: string;
@@ -56,7 +57,7 @@ export type Interview = {
   readonly model: string;
   readonly createdAt: number;
 };
-const rowOf = (r: Readonly<Record<string, unknown>>): Interview => ({
+const rowOf = (r: Row): Interview => ({
   code: str(r, "code"),
   key: str(r, "key"),
   brief: str(r, "brief"),
@@ -84,15 +85,15 @@ export const create = (
         message:
           "背景太长了（最多 8000 个字）：更长的内容请当文档上传（POST /admin/interviews/<code>/materials，文档不限长度），brief 只写要点",
       });
-    const db = yield* Db;
-    if ((yield* db.first("SELECT code FROM interviews WHERE code = ?", [code])) !== undefined)
+    const sql = yield* SqlClient.SqlClient;
+    if ((yield* statement(sql`SELECT code FROM interviews WHERE code = ${code}`)).length > 0)
       return yield* new InterviewExists({ code });
-    if ((yield* db.first("SELECT code FROM retired_codes WHERE code = ?", [code])) !== undefined)
+    if ((yield* statement(sql`SELECT code FROM retired_codes WHERE code = ${code}`)).length > 0)
       return yield* new InterviewRetired({ code });
     const key = yield* randomKey;
-    yield* db.run(
-      "INSERT INTO interviews (code, key, brief, template, goal, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [code, key, brief, template, goal, model, yield* nowSeconds],
+    const createdAt = yield* nowSeconds;
+    yield* statement(
+      sql`INSERT INTO interviews ${sql.insert({ code, key, brief, template, goal, model, created_at: createdAt })}`,
     );
     return {
       code,
@@ -101,14 +102,16 @@ export const create = (
       template,
       goal,
       model,
-      createdAt: yield* nowSeconds,
+      createdAt,
     } satisfies Interview;
   });
 
 export const find = (code: string) =>
   Effect.gen(function* () {
-    const db = yield* Db;
-    const row = yield* db.first("SELECT * FROM interviews WHERE code = ?", [normalizeCode(code)]);
+    const sql = yield* SqlClient.SqlClient;
+    const [row] = yield* statement(
+      sql<Row>`SELECT * FROM interviews WHERE code = ${normalizeCode(code)}`,
+    );
     return row ? rowOf(row) : null;
   });
 
@@ -117,34 +120,33 @@ export const open = (code: string, key: string) =>
   Effect.map(find(code), (i) => (i !== null && sameSecret(i.key, key) ? i : null));
 
 export const list = Effect.gen(function* () {
-  const db = yield* Db;
-  return (yield* db.all("SELECT * FROM interviews ORDER BY created_at DESC")).map(rowOf);
+  const sql = yield* SqlClient.SqlClient;
+  return (yield* statement(sql<Row>`SELECT * FROM interviews ORDER BY created_at DESC`)).map(rowOf);
 });
 
 /** 换 key：旧链接立刻失效。 */
 export const rotate = (code: string) =>
   Effect.gen(function* () {
-    const db = yield* Db;
+    const sql = yield* SqlClient.SqlClient;
     const found = yield* find(code);
     if (!found) return yield* new InterviewNotFound({ what: code });
     const key = yield* randomKey;
-    yield* db.run("UPDATE interviews SET key = ?, rotated_at = ? WHERE code = ?", [
-      key,
-      yield* nowSeconds,
-      found.code,
-    ]);
+    const rotatedAt = yield* nowSeconds;
+    yield* statement(
+      sql`UPDATE interviews SET key = ${key}, rotated_at = ${rotatedAt} WHERE code = ${found.code}`,
+    );
     return { ...found, key } satisfies Interview;
   });
 
 /** 删除登记并让 code 永久作废（内容在 DO 和 R2 里，由调用方先清）。 */
 export const retire = (code: string) =>
   Effect.gen(function* () {
-    const db = yield* Db;
+    const sql = yield* SqlClient.SqlClient;
     const found = yield* find(code);
     if (!found) return yield* new InterviewNotFound({ what: code });
-    yield* db.run("INSERT INTO retired_codes (code, retired_at) VALUES (?, ?)", [
-      found.code,
-      yield* nowSeconds,
-    ]);
-    yield* db.run("DELETE FROM interviews WHERE code = ?", [found.code]);
+    const retiredAt = yield* nowSeconds;
+    yield* statement(
+      sql`INSERT INTO retired_codes ${sql.insert({ code: found.code, retired_at: retiredAt })}`,
+    );
+    yield* statement(sql`DELETE FROM interviews WHERE code = ${found.code}`);
   });

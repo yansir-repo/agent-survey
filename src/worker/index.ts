@@ -14,7 +14,7 @@
 import { env } from "cloudflare:workers";
 import { Cause, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
-import { DbLive, type D1Like } from "./db.ts";
+import { DbLive } from "./db.ts";
 import { DOC_EXT, IMAGE_EXT, TEXT_EXT } from "../shared/files.ts";
 import { DEFAULT_MODEL, MODELS, resolveModel } from "../shared/models.ts";
 import { markdownPath } from "../shared/files.ts";
@@ -69,7 +69,7 @@ const asRecord = (x: unknown): Record<string, unknown> =>
 
 // ---- the client's side: the key is the gate ----
 
-const clientRoute = (db: D1Like) =>
+const clientRoute = (db: D1Database) =>
   HttpRouter.add(
     "*",
     "/i/*",
@@ -181,7 +181,7 @@ const adminAllowed = (request: HttpServerRequest.HttpServerRequest): boolean => 
   return token.length >= 16 && token !== "none" && sameSecret(token, given);
 };
 
-const adminRoute = (db: D1Like) =>
+const adminRoute = (db: D1Database) =>
   HttpRouter.add(
     "*",
     "/admin/*",
@@ -420,7 +420,7 @@ const adminRoute = (db: D1Like) =>
   );
 
 /** One web handler per request: a Workers isolate serves requests concurrently, and I/O created for one request cannot be awaited by another. */
-const buildHandler = (db: D1Like) =>
+const buildHandler = (db: D1Database) =>
   HttpRouter.toWebHandler(Layer.mergeAll(clientRoute(db), adminRoute(db)), {
     disableLogger: true,
     // A defect in a route is the server's fault, never the customer's: answer in JSON (the page can show it) instead of an empty 500.
