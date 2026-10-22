@@ -14,7 +14,20 @@
       }
     }
   ],
-  "nativeDependencyBoundaries": [],
+  "nativeDependencyBoundaries": [
+    {
+      "package": ".",
+      "dependency": "ai",
+      "owner": "访谈者（Think Durable Object）",
+      "reason": "@cloudflare/think peers `ai` ^7: its tools are AI SDK `tool()`/`jsonSchema` values and getModel returns an AI SDK LanguageModel. Imported only by src/worker/interviewer.ts (the declared aiProviderTransport); no Effect AI client exists in Think's loop."
+    },
+    {
+      "package": ".",
+      "dependency": "@ai-sdk/openai-compatible",
+      "owner": "访谈者（Think Durable Object）",
+      "reason": "Builds the AI SDK LanguageModel that Think's getModel must return (DeepSeek and other OpenAI-compatible endpoints). Imported only by src/worker/interviewer.ts, the declared aiProviderTransport."
+    }
+  ],
   "hostTooling": [
     {
       "path": "scripts/**",
