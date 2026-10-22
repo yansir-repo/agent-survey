@@ -15,7 +15,6 @@ minimumReleaseAgeExclude:
   - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.3.0"
   - "@voidzero-dev/vite-plus-win32-x64-msvc@1.3.0"
   - vite-plus@1.3.0
-  - "@yansircc/effect-scan@0.1.19"
   - "@cloudflare/vite-plugin@2.0.0-beta.sha-52b0dc0e9"
 catalog:
   effect: 4.0.5
