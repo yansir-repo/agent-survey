@@ -25,6 +25,9 @@
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
+  "optionalDependencies": {
+    "@effect/tsgo-linux-x64": "0.56.0"
+  },
   "engines": {
     "node": ">=22.15.0"
   },

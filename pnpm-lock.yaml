@@ -237,6 +237,10 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 5.0.5(@types/node@22.15.17)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(@voidzero-dev/vite-plus-core@1.3.0(@types/node@22.15.17)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))
+    optionalDependencies:
+      '@effect/tsgo-linux-x64':
+        specifier: 0.56.0
+        version: 0.56.0
 
 packages:
 
@@ -570,6 +574,11 @@ packages:
   '@effect/tsgo-linux-arm@0.56.0':
     resolution: {integrity: sha512-3WuPwP8vQPqKVpfGmKlnguuAZb7NGUyAhIHQjZnaINU6Aim7WczOy2WOmKjDPSKRlonU2WyYT+Q5T3B7f0VTLw==}
     cpu: [arm]
+    os: [linux]
+
+  '@effect/tsgo-linux-x64@0.56.0':
+    resolution: {integrity: sha512-R0d3dGf8qKPtvjff+J9HL0UjIBIES6xZiU16rMMezI4K52b+DGQkaWi1OX3tSgGivjlV+NSN7UhPJ2pYKufglw==}
+    cpu: [x64]
     os: [linux]
 
   '@effect/tsgo-win32-arm64@0.56.0':
@@ -3679,6 +3688,9 @@ snapshots:
     optional: true
 
   '@effect/tsgo-linux-arm@0.56.0':
+    optional: true
+
+  '@effect/tsgo-linux-x64@0.56.0':
     optional: true
 
   '@effect/tsgo-win32-arm64@0.56.0':
