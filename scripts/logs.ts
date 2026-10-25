@@ -2,7 +2,7 @@
  * What the deployed Worker logged, without re-deriving the observability API every time.
  *
  *   node scripts/logs.ts                          # last 15 minutes: every /rpc call, its wall/cpu time
- *   node scripts/logs.ts --since 2h --timing      # only the `grill` phase lines
+ *   node scripts/logs.ts --since 2h --timing      # only the interview phase lines
  *   node scripts/logs.ts --view events --json     # raw log events
  *
  * The two views answer different questions and both were hand-built during the "the board is slow"
@@ -11,7 +11,7 @@
  * - `invocations` (default) groups events by request: time, colo, wall time, CPU time. CPU ≈ tens of ms
  *   against seconds of wall time means the time went into waiting (a D1 round trip, the archive
  *   binding), not arithmetic.
- * - `events` is the raw log lines, which is where `grill`'s per-phase numbers live
+ * - `events` is the raw log lines, which is where the interview phase's per-phase numbers live
  *   (`db.allBatch` also logs `primary` / `region`, i.e. whether a read hit the replica).
  *
  * Uses `cf` (the operator's own login) rather than a token: logs are an account-level resource, not
@@ -26,7 +26,7 @@ const USAGE = `用法：node scripts/logs.ts [--since 15m] [--view invocations|e
 
   --since   多久以前开始（15m / 2h / 1d，默认 15m）
   --view    invocations（默认：每次请求的时间/colo/墙钟/CPU）或 events（原始日志行）
-  --timing  只看 grill 那几行（等价于 --view events 再过滤）
+  --timing  只看 interview 那几行（等价于 --view events 再过滤）
   --json    打印原始响应
   --limit   最多取多少条（默认 100）`;
 
@@ -112,8 +112,8 @@ const at = (ts: unknown) => new Date(Number(ts)).toISOString().slice(11, 19);
 const messagesOf = (events: ReadonlyArray<unknown>): string[] =>
   events
     .map((e) => String(((e as { source?: { message?: unknown } }).source?.message ?? "") as string))
-    .filter((m) => m.includes("grill"))
-    .map((m) => m.replace("grill ", ""));
+    .filter((m) => m.includes("interview"))
+    .map((m) => m.replace("interview ", ""));
 
 if (args.view === "events") {
   const rows: Array<[number, string]> = [];
@@ -121,10 +121,10 @@ if (args.view === "events") {
     const message = String(
       ((event as { source?: { message?: unknown } }).source?.message ?? "") as string,
     );
-    if (args.timing && !message.includes("grill")) continue;
+    if (args.timing && !message.includes("interview")) continue;
     rows.push([
       Number((event as { timestamp?: unknown }).timestamp ?? 0),
-      message.replace("grill ", ""),
+      message.replace("interview ", ""),
     ]);
   }
   rows.sort((a, b) => a[0] - b[0]);

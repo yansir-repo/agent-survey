@@ -11,7 +11,7 @@
 **发邀请 → 等 → 取记录**，都有命令（输出 JSON，`--pretty` 给人看）：
 
 ```sh
-export GRILL_ADMIN_TOKEN=…        # 或放进 data/prod-secrets.json / .dev.vars
+export AGENT_SURVEY_ADMIN_TOKEN=…        # 或放进 data/prod-secrets.json / .dev.vars
 node scripts/invite.ts guide                                  # 先读说明书
 node scripts/invite.ts templates                              # 有哪些模板
 node scripts/invite.ts create --code acme-2026 --template cross-border-website \

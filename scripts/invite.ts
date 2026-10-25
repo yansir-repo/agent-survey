@@ -15,8 +15,8 @@
  *   node scripts/invite.ts delete --code acme-2026 --yes                  # 不可恢复，code 永久作废
  *   node scripts/invite.ts guide | templates | models
  *
- * 令牌：环境变量 GRILL_ADMIN_TOKEN，否则读 data/prod-secrets.json 或 .dev.vars 里的 ADMIN_TOKEN（都不入库）。
- * 地址：--base 或 GRILL_BASE（默认线上）。
+ * 令牌：环境变量 AGENT_SURVEY_ADMIN_TOKEN，否则读 data/prod-secrets.json 或 .dev.vars 里的 ADMIN_TOKEN（都不入库）。
+ * 地址：--base 或 AGENT_SURVEY_BASE（默认线上）。
  * 为什么不在门禁里：它要连线上、要提问方的令牌，是操作命令。
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -41,7 +41,7 @@ const fail = (message: string, code = 1): never => {
 };
 
 const token = (): string => {
-  const fromEnv = process.env["GRILL_ADMIN_TOKEN"];
+  const fromEnv = process.env["AGENT_SURVEY_ADMIN_TOKEN"];
   if (fromEnv) return fromEnv;
   if (existsSync("data/prod-secrets.json")) {
     const t = (
@@ -54,11 +54,11 @@ const token = (): string => {
     if (m?.[1]) return m[1].trim().replace(/^["']|["']$/g, "");
   }
   return fail(
-    "没有找到 ADMIN_TOKEN：设环境变量 GRILL_ADMIN_TOKEN，或放进 data/prod-secrets.json / .dev.vars",
+    "没有找到 ADMIN_TOKEN：设环境变量 AGENT_SURVEY_ADMIN_TOKEN，或放进 data/prod-secrets.json / .dev.vars",
   );
 };
 
-const base = (flag("base") ?? process.env["GRILL_BASE"] ?? DEFAULT_BASE).replace(/\/$/, "");
+const base = (flag("base") ?? process.env["AGENT_SURVEY_BASE"] ?? DEFAULT_BASE).replace(/\/$/, "");
 const auth = () => ({ Authorization: `Bearer ${token()}` });
 const print = (v: unknown) => console.log(JSON.stringify(v, null, pretty ? 2 : 0));
 
