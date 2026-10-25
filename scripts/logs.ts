@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 
 const ACCOUNT = "d1da6c26f60e13fb006a3d4b5dae3f09";
-const SCRIPT = "grill-me";
+const SCRIPT = "agent-survey";
 
 const USAGE = `用法：node scripts/logs.ts [--since 15m] [--view invocations|events] [--timing] [--json] [--limit N]
 

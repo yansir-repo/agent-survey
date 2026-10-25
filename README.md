@@ -1,6 +1,6 @@
 # agent-survey
 
-> 线上 Worker / D1 / R2 的标识仍是 `grill-me`（见 AGENTS.md「部署」），地址 `grill-me.yansir.workers.dev` 不变。
+> 线上 Worker / D1 / R2 的标识都是 `agent-survey`，地址 `agent-survey.yansir.workers.dev`（见 AGENTS.md「部署」）。
 
 **越问越短的表单。** 调用方交给它一份说明和一些已知信息，它派一个 agent 去问受访者：每轮 1–8 题，题型自己选（单选、多选、数字、文字、多行、富文本、链接、图片、文件），已知的不再问，选项尽量替受访者猜好。不确定的题可以选“稍后再答”，一个都不会丢。问完交回一份**原样的记录**，记录拿去干什么，不归它管。
 

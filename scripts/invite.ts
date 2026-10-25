@@ -22,7 +22,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 
-const DEFAULT_BASE = "https://grill-me.yansir.workers.dev";
+const DEFAULT_BASE = "https://agent-survey.yansir.workers.dev";
 
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "";

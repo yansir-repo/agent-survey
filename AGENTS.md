@@ -1,6 +1,6 @@
 # AGENTS.md
 
-agent-survey（原名 grill-me）。README 讲用途；本文件是改代码时要守的规矩。
+agent-survey。README 讲用途；本文件是改代码时要守的规矩。
 
 ## 这是什么，不是什么
 
@@ -31,7 +31,7 @@ agent-survey（原名 grill-me）。README 讲用途；本文件是改代码时�
 
 ## 模板与一次访谈（`src/shared/templates.ts`、`templates/`、`prompt.ts`）
 
-- 设计依据：`docs/design-agent-survey.md`。仓库、包名、代码里的称呼已是 agent-survey；**部署标识仍是 `grill-me`**（Worker、D1、R2、`workers.dev` 地址）：改 Worker 名 = 一个新 Worker，Durable Object 里进行中的访谈不会跟过去，已发出的链接也失效。只有在没有进行中的访谈、且愿意重发链接时才改。
+- 设计依据：`docs/design-agent-survey.md`。仓库、包名、代码与部署标识（Worker、D1、R2、`workers.dev` 地址）现在都是 `agent-survey`。**再改 Worker 名 = 一个新 Worker**：Durable Object 里进行中的访谈不会跟过去，已发出的链接也会失效——只有在没有进行中的访谈、且愿意重发链接时才改。
 - **template** = 目标描述 `goal` + 验收条款 `criteria` + 可选默认（`respondent`、`intro`、`pace`、`capabilities`、`language`）。数据只在 `templates/`，那里是引擎里**唯一**允许懂领域的地方；`src/shared/independence.test.ts` 扫 `src/`，出现领域词就失败。
 - 创建访谈时模板和这次的覆盖（`goal` 整段覆盖 / `append` 追加 / `criteria` …）合成一份**快照**（`resolveTemplate`）存进访谈，之后改模板不影响进行中的访谈。`pace` 与 `capabilities` 默认不设限、全开。
 - 没有“交付物”：不再有 CONTEXT / facts / model、`propose_model`、`record_facts`、两场访谈交接（`--from`）。agent 只有 NOTES.md（工作笔记，受访者看得到：`/api/notes`）。
@@ -98,6 +98,6 @@ agent-survey（原名 grill-me）。README 讲用途；本文件是改代码时�
 
 - `vp run deploy` = ci → `cf:ready`（刷新 cf 令牌：令牌过期后的第一个 `cf` 调用会被拒，见 38 的 docs/deploy.md）→ 远程迁移 → `cf:ready` → `cf deploy --secrets-file data/prod-secrets.json`。
 - **push 到 `main` 自动部署**：Cloudflare Workers Builds（Worker 的 Git 集成，不是 GitHub Actions；设置在 Cloudflare 里，不在仓库里）。生产设置：构建 `pnpm exec vp run ci`，部署 `pnpm exec cf d1 migrations apply <D1 id> && pnpm exec cf deploy --prebuilt`——先迁移再部署，门禁或迁移失败就不部署。`--prebuilt` 是因为构建机上没有 `vite` 可执行文件（项目用 vite-plus），`cf deploy` 自己再构建会找不到它；密钥不用 `--secrets-file`：`cf` ≥ beta.7 会沿用上一个版本的密钥（本仓库用 beta.12，已验证部署后 `/admin/models` 仍报 DeepSeek 可用）。2026-10-18 之前这里是默认的 `npx wrangler deploy`，因为仓库没有 wrangler 配置，每次构建都失败。
-- **看构建**：`cf builds list --external-script-id <Worker tag>`（`cf workers scripts search --name grill-me` 查 tag）、`cf builds logs get <build-uuid>`；手动触发：`cf builds create <trigger-uuid> --body '{"branch":"main"}'`。`vp run deploy` 仍可用（本机手动部署），两者部署的是不同的工作区：构建机部署的是推上去的那个提交。
+- **看构建**：`cf builds list --external-script-id <Worker tag>`（`cf workers scripts search --name agent-survey` 查 tag）、`cf builds logs get <build-uuid>`；手动触发：`cf builds create <trigger-uuid> --body '{"branch":"main"}'`。`vp run deploy` 仍可用（本机手动部署），两者部署的是不同的工作区：构建机部署的是推上去的那个提交。
 - 密钥在 `data/prod-secrets.json`（gitignored）：`DEEPSEEK_API_KEY`、`ADMIN_TOKEN`。模型是 DeepSeek（OpenAI 兼容接口，thinking 关闭）。
-- 资源：Worker `grill-me`、D1 `grill-me`、R2 `grill-me-files`、Durable Object `Interviewer`（SQLite）。创建访谈：`node scripts/invite.ts create …`（或 `POST /admin/interviews {code, brief}`）→ 客户的链接；说明书见上一节。
+- 资源：Worker `agent-survey`、D1 `agent-survey`（`2482ac39-431f-4274-92ee-9fabd1d27d05`）、R2 `agent-survey-files`、Durable Object `Interviewer`（SQLite）。创建访谈：`node scripts/invite.ts create …`（或 `POST /admin/interviews {code, brief}`）→ 客户的链接；说明书见上一节。
