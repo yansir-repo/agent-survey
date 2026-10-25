@@ -49,7 +49,7 @@
   "allowedAdapters": [
     {
       "path": "src/worker/index.ts",
-      "owner": "Grill-me Worker",
+      "owner": "Agent Survey Worker",
       "reason": "The fetch edge hands /i/* and /admin/* to one Effect web handler per request and copies its response into a native Response; Durable Object calls are wrapped as effects (`rpc`). No business logic lives here beyond routing.",
       "rules": ["EFF402"]
     },
